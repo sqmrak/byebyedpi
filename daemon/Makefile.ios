@@ -1,0 +1,73 @@
+# cross-compile byedpid and byebyectl against static openssl for
+# jailbroken ios devices. static linkage keeps the runtime dependency limited
+# to the system libraries
+
+ifneq ($(MAKECMDGOALS),clean)
+THEOS   ?= $(error set THEOS=/path/to/theos)
+endif
+TC      ?= $(if $(BYE_TC),$(BYE_TC),$(THEOS)/toolchain/linux/iphone/bin)
+ifneq ($(MAKECMDGOALS),clean)
+SDK     ?= $(if $(BYE_SDK),$(BYE_SDK),$(error set SDK=/path/to/iphoneos.sdk))
+OSSL    ?= $(if $(BYE_OSSL),$(BYE_OSSL),$(error set OSSL=/path/to/openssl-prefix))
+endif
+LDID    ?= $(TC)/ldid
+BYE_AR  ?= $(TC)/llvm-ar
+CRT     ?=
+EXTRA_CFLAGS ?=
+
+# target and library variables stay overrideable for each device slice
+TRIPLE  ?= arm-apple-darwin11
+CC      := $(TC)/clang -target $(TRIPLE) -B $(TC)
+ARCH    ?= -arch armv7 -miphoneos-version-min=5.0
+IOS_BINDIR ?= build/ios
+CFLAGS  := -std=c99 -Wall -Wextra -O2 $(EXTRA_CFLAGS) $(ARCH) -isysroot $(SDK) \
+           -I../core -I. -Itun -Itun/core -I$(OSSL)/include \
+           -Itun/lwip_port -Itun/third_party/lwip/src/include
+# link archives directly because the device has no openssl to depend on, and
+# drop unreachable archive code so the static libraries do not inflate a slice
+LIBS    := $(OSSL)/lib/libssl.a $(OSSL)/lib/libcrypto.a
+LDFLAGS := $(ARCH) -isysroot $(SDK) -Wl,-dead_strip $(if $(CRT),-nostartfiles $(CRT),)
+
+CORE_SRC = ../core/bye_sniff.c ../core/bye_desync.c ../core/bye_ciadpi.c ../core/bye_mtp.c ../core/bye_ws.c \
+           ../core/bye_tg.c ../core/bye_route.c ../core/bye_config.c ../core/bye_status.c ../core/bye_hosts.c
+TUN_SRC  = tun/utun_device.c tun/utun_route.c tun/route_socket.c tun/tun_stack.c \
+           tun/tun_loop.c tun/direct_socket.c tun/legacy_ios.c tun/utun_dns.c tun/proc_detach.c \
+           tun/core/route_message.c tun/core/tun_plan.c tun/core/tun_nat.c \
+           tun/core/utun_frame.c tun/core/senko_time.c
+DAEMON_SRC = main.c bye_altaddr.c bye_backend.c bye_badge.c bye_hostsfile.c bye_ctl.c bye_iface.c bye_probe.c bye_resolver.c bye_tcp.c bye_tgproxy.c bye_udp.c bye_wsconn.c
+LWIP_DIR = tun/third_party/lwip/src
+LWIP_SRC = $(wildcard $(LWIP_DIR)/core/*.c) $(wildcard $(LWIP_DIR)/core/ipv4/*.c) \
+           $(wildcard $(LWIP_DIR)/core/ipv6/*.c) tun/lwip_port/lwip_sys.c
+LWIP_OBJ = $(patsubst %.c,$(IOS_BINDIR)/%.o,$(LWIP_SRC))
+LWIP_LIB = $(IOS_BINDIR)/libbye_lwip.a
+# a __RESTRICT segment makes dyld ignore DYLD_INSERT_LIBRARIES, which is how
+# substrate loads tweaks. the daemon runs as root and owns the routes, and a
+# tweak hooking connect() inside it would break every flow
+RESTRICT_LDFLAGS := -Wl,-sectcreate,__RESTRICT,__restrict,/dev/null
+
+.PHONY: all clean
+all: $(IOS_BINDIR)/byedpid $(IOS_BINDIR)/byebyectl
+
+$(IOS_BINDIR)/byedpid: $(DAEMON_SRC) $(CORE_SRC) $(TUN_SRC) $(LWIP_LIB) $(wildcard *.h ../core/*.h)
+	mkdir -p $(IOS_BINDIR)
+	$(CC) $(CFLAGS) $(DAEMON_SRC) $(CORE_SRC) $(TUN_SRC) $(LWIP_LIB) -o $@ $(LDFLAGS) $(LIBS) \
+	      -framework CoreFoundation -framework SystemConfiguration $(RESTRICT_LDFLAGS)
+	$(LDID) -S $@
+	@echo "signed. deps:"; $(TC)/otool -L $@ | tail -n +2
+
+$(IOS_BINDIR)/%.o: %.c
+	mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(LWIP_LIB): $(LWIP_OBJ)
+	rm -f $@
+	$(BYE_AR) rcs $@ $(LWIP_OBJ)
+
+$(IOS_BINDIR)/byebyectl: byebyectl.c ../core/bye_client.c ../core/bye_client.h bye_paths.h
+	mkdir -p $(IOS_BINDIR)
+	$(CC) $(CFLAGS) byebyectl.c ../core/bye_client.c -o $@ $(LDFLAGS)
+	$(LDID) -S $@
+	@echo "signed. deps:"; $(TC)/otool -L $@ | tail -n +2
+
+clean:
+	rm -rf build

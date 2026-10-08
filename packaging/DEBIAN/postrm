@@ -1,0 +1,62 @@
+#!/bin/sh
+# cleanup must still run when optional jailbreak tools are already gone
+
+PAYLOAD_ROOT=/var/jb
+if [ -e /var/jb/.procursus_strapped ] || \
+   [ -x /var/jb/basebin/launchctl ] || \
+   [ -x /var/jb/usr/bin/dpkg ]; then
+  JBROOT=/var/jb
+else
+  JBROOT=
+fi
+LABEL=com.byebyedpi.byedpid
+
+remove_rootful_link() {
+  target_path=$1
+  expected_path=$2
+  [ -L "$target_path" ] || return 0
+  [ "$(readlink "$target_path" 2>/dev/null)" = "$expected_path" ] || return 0
+  rm -f "$target_path"
+}
+
+# the rootful copy of the app is not a dpkg file, so removal takes it out by hand before the cache rebuild
+if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
+  killall -9 ByeByeDPI >/dev/null 2>&1 || true
+  if [ -z "$JBROOT" ] && [ -f /Applications/ByeByeDPI.app/.byebyedpi-rootful-copy ]; then
+    rm -rf /Applications/ByeByeDPI.app
+  fi
+  UICACHE=${JBROOT}/usr/bin/uicache
+  [ -x "$UICACHE" ] || UICACHE=/usr/bin/uicache
+  INSTALL_CACHE=/var/mobile/Library/Caches/com.apple.mobile.installation.plist
+  SU=/bin/su
+  [ -x "$SU" ] || SU=/usr/bin/su
+  if [ -x "$UICACHE" ]; then
+    if [ -z "$JBROOT" ] && [ -f "$INSTALL_CACHE" ] && [ -x "$SU" ]; then
+      ( "$SU" - mobile -c "$UICACHE" >/dev/null 2>&1 || "$UICACHE" >/dev/null 2>&1 || true ) </dev/null &
+    else
+      ( "$UICACHE" >/dev/null 2>&1 || true ) </dev/null &
+    fi
+  fi
+fi
+
+# only links this package made are removed
+if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
+  for dir in /Library/MobileSubstrate/DynamicLibraries /usr/lib/TweakInject; do
+    rm -f "${dir}/byebyedpi-status.dylib" "${dir}/byebyedpi-status.plist"
+  done
+  rm -f /var/mobile/Library/Preferences/com.byebyedpi.status.state \
+        /var/mobile/Library/Preferences/com.byebyedpi.status.log
+  remove_rootful_link /usr/bin/byedpid "${PAYLOAD_ROOT}/usr/bin/byedpid"
+  remove_rootful_link /usr/bin/byebyectl "${PAYLOAD_ROOT}/usr/bin/byebyectl"
+  remove_rootful_link /usr/lib/byebyedpi "${PAYLOAD_ROOT}/usr/lib/byebyedpi"
+  # the rootful plist is a copy made by postinst, and only that copy is removed
+  if [ -z "$JBROOT" ] && grep -q "<string>${LABEL}</string>" "/Library/LaunchDaemons/${LABEL}.plist" 2>/dev/null; then
+    rm -f "/Library/LaunchDaemons/${LABEL}.plist"
+  fi
+fi
+# the config file stays for a later reinstall, only a purge removes it
+if [ "$1" = "purge" ]; then
+  rm -f /var/root/Library/Preferences/byebyedpi.cfg /var/log/byebyedpi-system.log >/dev/null 2>&1 || true
+  rm -rf /var/mobile/Library/Preferences/byebyedpi-hosts >/dev/null 2>&1 || true
+fi
+exit 0

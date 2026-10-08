@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- ios 14 and later confine an unsandboxed bundle in /Applications without this, and the
+         app has to reach the daemon's socket under /var/tmp -->
+    <key>com.apple.private.security.no-sandbox</key>
+    <true/>
+    <!-- the vpn badge on ios 12 and later comes from a packet tunnel the app starts -->
+    <key>com.apple.developer.networking.networkextension</key>
+    <array>
+        <string>packet-tunnel-provider</string>
+    </array>
+</dict>
+</plist>

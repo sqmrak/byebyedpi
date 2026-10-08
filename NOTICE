@@ -1,0 +1,21 @@
+byebyedpi
+
+gpl v2, see LICENSE.
+
+the telegram gateway follows the method of tg-ws-proxy by Flowseal (mit,
+licenses/tg-ws-proxy-MIT.txt) as used in ByeByeDPI x tg by EwenLoy. the code
+here is written from the protocol, not copied.
+
+the tunnel layer in daemon/tun is vendored from senko (gpl v2), see
+daemon/tun/VENDOR. it carries lwip 2.2.1 (bsd 3 clause,
+daemon/tun/third_party/lwip/COPYING).
+
+the trust roots in the package are the pem bundle given as BYE_CA_BUNDLE_SRC
+when the deb is built.
+
+the domain lists under app/lists are the test lists of ByeByeDPI for android
+by romanvht (gpl v3), taken as they are.
+
+the glyphs in art/icons/material are Material Symbols (apache 2.0,
+art/LICENSE-MaterialSymbols.txt). the other glyphs and the app icon are drawn
+for this project.

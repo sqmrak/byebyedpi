@@ -1,0 +1,27 @@
+the packet capture layer of byedpid, vendored from senko
+
+source:    ~/Samsung/senko, git commit f79181f66436f7f53df45b43520b3b7102416d5c
+imported:  2026-10-04
+license:   gpl v2, the same project owner
+
+copied as they were at that commit:
+
+  utun_device, utun_route, route_socket, tun_stack, tun_loop, direct_socket,
+  legacy_ios, utun_dns, proc_detach          (from daemon/)
+  route_message, tun_plan, tun_nat, utun_frame, senko_time   (from daemon/core/)
+  lwip_port/                                 (from daemon/lwip_port/)
+  third_party/lwip/src/core, src/include     (from daemon/third_party/lwip/, lwip 2.2.1)
+  the host tests of these modules            (tests/tun/)
+
+changed after the copy:
+
+  - user facing strings say byedpid instead of senkod, the leftover route
+    file header is byebyedpi-utun-routes
+  - utun_dns.c publishes under com.byebyedpi.utun
+  - core/tun_flow.h keeps only the flow key and the table caps. the flow table
+    and the rule header it pulled in are not used here
+  - the lwip tree lost its build file lists
+
+the names senko_now_ms, senko_ios_major and the SENKO_ include guards stay, so
+a diff against senko shows only what changed on purpose. lwip is unmodified,
+see third_party/lwip/VENDOR.

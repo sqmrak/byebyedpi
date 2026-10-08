@@ -1,0 +1,55 @@
+#!/bin/sh
+# removal must continue after optional jailbreak tools disappear
+
+if [ -e /var/jb/.procursus_strapped ] || \
+   [ -x /var/jb/basebin/launchctl ] || \
+   [ -x /var/jb/usr/bin/dpkg ]; then
+  JBROOT=/var/jb
+else
+  JBROOT=
+fi
+LABEL=com.byebyedpi.byedpid
+PLIST=${JBROOT}/Library/LaunchDaemons/${LABEL}.plist
+BYEBYECTL=/var/jb/usr/bin/byebyectl
+KILLALL=${JBROOT}/usr/bin/killall
+[ -x "$KILLALL" ] || KILLALL=/usr/bin/killall
+[ -x "$KILLALL" ] || KILLALL=/bin/killall
+LAUNCHCTL=${JBROOT}/bin/launchctl
+[ -x "$LAUNCHCTL" ] || LAUNCHCTL=${JBROOT}/usr/bin/launchctl
+[ -x "$LAUNCHCTL" ] || LAUNCHCTL=/bin/launchctl
+[ -x "$LAUNCHCTL" ] || LAUNCHCTL=/usr/bin/launchctl
+
+# the routes and the utun belong to the daemon, and dpkg deletes the binaries
+# that know how to undo them moments after this script returns. asking the
+# daemon to stop while it is still on disk is the only clean teardown
+if [ -S /var/tmp/byedpid.sock ] && [ -x "$BYEBYECTL" ]; then
+  "$BYEBYECTL" stop >/dev/null 2>&1 || true
+fi
+
+# the launchctl of h3lix on ios 10 answers 0 to bootout without doing it, and
+# a job left loaded restarts the daemon right after the kill below
+launchd_loaded() {
+  case "$("$LAUNCHCTL" list 2>/dev/null)" in
+    *${LABEL}*) return 0 ;;
+  esac
+  return 1
+}
+
+if [ -x "$LAUNCHCTL" ]; then
+  "$LAUNCHCTL" bootout "system/${LABEL}" >/dev/null 2>&1
+  launchd_loaded && "$LAUNCHCTL" bootout system "$PLIST" >/dev/null 2>&1
+  launchd_loaded && "$LAUNCHCTL" unload "$PLIST" >/dev/null 2>&1
+  launchd_loaded && "$LAUNCHCTL" remove "$LABEL" >/dev/null 2>&1
+  launchd_loaded && echo "byebyedpi: launchd still holds ${LABEL}" >&2
+fi
+# SIGTERM lets the daemon drop its routes before it exits
+"$KILLALL" -TERM byedpid >/dev/null 2>&1 || true
+sleep 1
+"$KILLALL" -TERM byedpid >/dev/null 2>&1 || true
+sleep 1
+"$KILLALL" -9 byedpid >/dev/null 2>&1 || true
+
+if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
+  rm -f /var/tmp/byedpid.sock /var/tmp/byedpid.token >/dev/null 2>&1 || true
+fi
+exit 0

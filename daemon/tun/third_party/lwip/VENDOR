@@ -1,0 +1,50 @@
+lwip, vendored for the byedpid utun layer, copied from senko's copy
+
+this tree is senko's copy (daemon/third_party/lwip at senko commit f79181f)
+without src/Filelists.mk, src/FILES, CHANGELOG, README and UPGRADING. the
+sources in src/core and src/include are the upstream files. the paths below
+name senko's tree, here they are daemon/tun/third_party/lwip.
+
+upstream:     https://git.savannah.nongnu.org/git/lwip.git
+release:      lwIP 2.2.1
+tag:          STABLE-2_2_1_RELEASE
+commit:       77dcd25a72509eb83f72b033d219b1d40cd8eb95
+archive:      https://download.savannah.nongnu.org/releases/lwip/lwip-2.2.1.zip
+archive sha256: 7b622662dba2383d71f874f2e494b54ae948531559c17acbe75797966d646878
+imported:     2026-09-22
+license:      BSD 3-clause, see COPYING. compatible with senko's gplv2
+
+the files here are copied from the tag above, unmodified. the published zip
+and the tag hold the same sources, they differ only in line endings (the zip
+ships crlf), so the import was taken from the tag to keep the tree free of
+carriage returns. to verify:
+
+  git clone --depth 1 --branch STABLE-2_2_1_RELEASE \
+      https://git.savannah.nongnu.org/git/lwip.git
+  diff -r lwip/src/core       daemon/third_party/lwip/src/core
+  diff -r lwip/src/include    daemon/third_party/lwip/src/include
+
+what was imported:
+
+  src/core            the stack itself, ipv4 and ipv6 included
+  src/include/lwip    public and private headers
+  src/include/netif   headers the core includes when a feature is enabled
+  src/Filelists.mk    upstream's own file list, kept as the reference for
+                      which sources belong to which feature
+  src/FILES, COPYING, CHANGELOG, README, UPGRADING
+
+what was left out, because senko drives the stack through the raw api from a
+single thread and never uses the parts that need an os or a socket layer:
+
+  src/api             netconn and socket apis
+  src/apps            http, mqtt, sntp and the rest
+  src/netif/*.c       ethernet, ppp, slip, 6lowpan and bridge drivers.
+                      the utun device is the only interface senko attaches
+  src/include/compat  posix socket compatibility headers
+
+senko's configuration lives outside this directory, so nothing here has to be
+edited to build it. this directory is never modified locally: a fix belongs
+upstream or in senko's own adapter, and the next version is imported the same
+way this one was.
+
+nothing is downloaded during a build.

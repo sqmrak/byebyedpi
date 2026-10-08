@@ -1,0 +1,12 @@
+/.package-stage/
+/.build-slices/
+/daemon/build/
+/tests/build/
+/tests/build-san/
+/tests/byedpid-host
+/tests/byebyectl-host
+/tests/test_*
+!/tests/test_*.c
+!/tests/test_*.inc
+/byebyedpi-v*.deb
+/out/

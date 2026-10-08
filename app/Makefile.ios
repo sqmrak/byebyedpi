@@ -1,0 +1,36 @@
+# cross-compile the app binary for one slice of a jailbroken ios device. the
+# bundle itself is put together by ../build_deb.sh
+
+ifneq ($(MAKECMDGOALS),clean)
+THEOS   ?= $(error set THEOS=/path/to/theos)
+endif
+TC      ?= $(if $(BYE_TC),$(BYE_TC),$(THEOS)/toolchain/linux/iphone/bin)
+ifneq ($(MAKECMDGOALS),clean)
+SDK     ?= $(if $(BYE_SDK),$(BYE_SDK),$(error set SDK=/path/to/iphoneos.sdk))
+endif
+LDID    ?= $(TC)/ldid
+EXTRA_CFLAGS ?=
+
+TRIPLE  ?= arm-apple-darwin11
+CC      := $(TC)/clang -target $(TRIPLE) -B $(TC)
+ARCH    ?= -arch armv7 -miphoneos-version-min=5.0
+IOS_BINDIR ?= build/ios
+CFLAGS  := -fno-objc-arc -fblocks -Wall -Wextra -O2 $(EXTRA_CFLAGS) $(ARCH) -isysroot $(SDK) \
+           -I../core -I../daemon -I.
+LDFLAGS := $(ARCH) -isysroot $(SDK) -framework UIKit -framework Foundation -framework CoreGraphics \
+           -framework QuartzCore
+
+CORE_SRC = ../core/bye_client.c ../core/bye_reply.c ../core/bye_desync.c ../core/bye_ciadpi.c ../core/bye_sniff.c ../core/bye_hosts.c ../core/bye_error.c
+APP_SRC  = app_main.m main_vc.m editor_vc.m settings_vc.m lists_vc.m probe_vc.m logs_vc.m about_vc.m \
+           bye_chrome.m bye_daemon.m bye_form.m bye_l10n.m bye_lists.m bye_strategies.m bye_theme.m bye_trace.m bye_vpn.m
+
+.PHONY: all clean
+all: $(IOS_BINDIR)/ByeByeDPI
+
+$(IOS_BINDIR)/ByeByeDPI: $(APP_SRC) $(CORE_SRC) $(wildcard *.h ../core/*.h ../daemon/bye_paths.h)
+	mkdir -p $(IOS_BINDIR)
+	$(CC) $(CFLAGS) $(APP_SRC) $(CORE_SRC) -o $@ $(LDFLAGS)
+	@echo "linked $@"
+
+clean:
+	rm -rf build

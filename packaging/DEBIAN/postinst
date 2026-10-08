@@ -1,0 +1,229 @@
+#!/bin/sh
+# the daemon starts here, the tunnel stays off until byebyectl or the config asks
+
+PAYLOAD_ROOT=/var/jb
+if [ -e /var/jb/.procursus_strapped ] || \
+   [ -x /var/jb/basebin/launchctl ] || \
+   [ -x /var/jb/usr/bin/dpkg ]; then
+  JBROOT=/var/jb
+else
+  JBROOT=
+fi
+LABEL=com.byebyedpi.byedpid
+PLIST=${JBROOT}/Library/LaunchDaemons/${LABEL}.plist
+LOG=/var/log/byebyedpi-system.log
+LAUNCHCTL=${JBROOT}/bin/launchctl
+[ -x "$LAUNCHCTL" ] || LAUNCHCTL=${JBROOT}/usr/bin/launchctl
+[ -x "$LAUNCHCTL" ] || LAUNCHCTL=/bin/launchctl
+[ -x "$LAUNCHCTL" ] || LAUNCHCTL=/usr/bin/launchctl
+
+install_rootful_link() {
+  source_path=$1
+  target_path=$2
+  [ -e "$source_path" ] || return 1
+  mkdir -p "${target_path%/*}" || return 1
+  if [ -L "$target_path" ]; then
+    rm -f "$target_path" || return 1
+  elif [ -e "$target_path" ]; then
+    rm -rf "$target_path" || return 1
+  fi
+  ln -s "$source_path" "$target_path"
+}
+
+# the armv7 slice looks in /usr, so a rootful install gets links to the
+# payload under /var/jb and a plist that names the linked binary
+install_rootful_layout() {
+  [ -z "$JBROOT" ] || return 0
+  [ -x "${PAYLOAD_ROOT}/usr/bin/byedpid" ] || return 1
+  [ -s "${PAYLOAD_ROOT}/usr/lib/byebyedpi/cacert.pem" ] || return 1
+  install_rootful_link "${PAYLOAD_ROOT}/usr/bin/byedpid" /usr/bin/byedpid || return 1
+  install_rootful_link "${PAYLOAD_ROOT}/usr/bin/byebyectl" /usr/bin/byebyectl || return 1
+  install_rootful_link "${PAYLOAD_ROOT}/usr/lib/byebyedpi" /usr/lib/byebyedpi || return 1
+  source_path="${PAYLOAD_ROOT}/Library/LaunchDaemons/${LABEL}.plist"
+  target_path=/Library/LaunchDaemons/${LABEL}.plist
+  mkdir -p "${target_path%/*}" || return 1
+  temp_path="${target_path}.dpkg-new"
+  sed 's#<string>/var/jb/usr/bin/byedpid</string>#<string>/usr/bin/byedpid</string>#' \
+    "$source_path" > "$temp_path" || return 1
+  rm -f "$target_path"
+  mv "$temp_path" "$target_path" || return 1
+  chown root:wheel "$target_path" 2>/dev/null || true
+  chmod 644 "$target_path" 2>/dev/null || true
+  [ -s "$target_path" ]
+}
+
+# the vpn badge hook is a substrate tweak for springboard, ios 5 to 11 only
+firmware_major() {
+  version="$(sed -n '/<key>ProductVersion<\/key>/{n;s/.*<string>\([0-9][0-9]*\)\..*<\/string>.*/\1/p;q;}' \
+    /System/Library/CoreServices/SystemVersion.plist 2>/dev/null)"
+  if [ -z "$version" ]; then
+    # a binary SystemVersion.plist reads empty, the kernel version still maps
+    # to the ios major: darwin 15 and later run six ahead, below that a table
+    darwin="$(uname -r 2>/dev/null | sed -n 's/^\([0-9][0-9]*\)\..*/\1/p')"
+    case "$darwin" in
+      11|12) version=5 ;;
+      13) version=6 ;;
+      14) version=7 ;;
+      *) [ "$darwin" -ge 15 ] 2>/dev/null && version=$((darwin - 6)) ;;
+    esac
+  fi
+  printf '%s\n' "$version"
+}
+
+if [ -d /Library/MobileSubstrate/DynamicLibraries ]; then
+  HOOK_DIR=/Library/MobileSubstrate/DynamicLibraries
+elif [ -d /usr/lib/TweakInject ]; then
+  HOOK_DIR=/usr/lib/TweakInject
+else
+  HOOK_DIR=
+fi
+
+remove_status_hook() {
+  for dir in /Library/MobileSubstrate/DynamicLibraries /usr/lib/TweakInject; do
+    rm -f "${dir}/byebyedpi-status.dylib" "${dir}/byebyedpi-status.plist"
+  done
+}
+
+install_status_hook() {
+  [ -f "${PAYLOAD_ROOT}/usr/lib/byebyedpi/status.dylib" ] || return 1
+  ln -sf "${PAYLOAD_ROOT}/usr/lib/byebyedpi/status.dylib" "${HOOK_DIR}/byebyedpi-status.dylib" || return 1
+  cp "${PAYLOAD_ROOT}/usr/lib/byebyedpi/status.plist" "${HOOK_DIR}/byebyedpi-status.plist" || return 1
+  chown root:wheel "${HOOK_DIR}/byebyedpi-status.plist" 2>/dev/null || true
+  chmod 644 "${HOOK_DIR}/byebyedpi-status.plist" 2>/dev/null || true
+}
+
+# the launchctl of h3lix on ios 10 answers 0 to bootstrap and bootout without
+# doing either, so every step is judged by what launchd lists afterwards
+launchd_loaded() {
+  case "$("$LAUNCHCTL" list 2>/dev/null)" in
+    *${LABEL}*) return 0 ;;
+  esac
+  return 1
+}
+
+launchd_start() {
+  if [ ! -x "$LAUNCHCTL" ]; then
+    echo "byebyedpi: no launchctl found, the daemon was not started" >&2
+    return 1
+  fi
+  "$LAUNCHCTL" bootstrap system "$PLIST" >/dev/null 2>&1
+  launchd_loaded || "$LAUNCHCTL" load -w "$PLIST" >/dev/null 2>&1
+  launchd_loaded || "$LAUNCHCTL" load "$PLIST" >/dev/null 2>&1
+  if ! launchd_loaded; then
+    echo "byebyedpi: launchd did not load ${PLIST}" >&2
+    echo "postinst: launchd did not load ${PLIST}" >> "$LOG" 2>/dev/null
+    return 1
+  fi
+  echo "postinst: launchd holds ${LABEL}" >> "$LOG" 2>/dev/null
+  "$LAUNCHCTL" enable "system/${LABEL}" >/dev/null 2>&1 || true
+  "$LAUNCHCTL" kickstart -k "system/${LABEL}" >/dev/null 2>&1 || \
+    "$LAUNCHCTL" start "$LABEL" >/dev/null 2>&1 || true
+  # launchctl can list a job whose process exits before it opens the socket
+  attempt=0
+  while [ "$attempt" -lt 8 ]; do
+    reply="$("${PAYLOAD_ROOT}/usr/bin/byebyectl" status 2>/dev/null)"
+    case "$reply" in
+      OK*)
+        echo "postinst: byedpid answered status" >> "$LOG" 2>/dev/null
+        return 0 ;;
+    esac
+    attempt=$((attempt + 1))
+    [ "$attempt" -lt 8 ] && sleep 1
+  done
+  echo "postinst: byedpid did not answer status after launchd load" >> "$LOG" 2>/dev/null
+  return 1
+}
+
+install_rootful_layout || {
+  echo "byebyedpi: cannot place the daemon, its tls roots or its launchd plist on rootful iOS" >&2
+  exit 1
+}
+
+chown root:wheel "$PLIST" 2>/dev/null || true
+chmod 644 "$PLIST" 2>/dev/null || true
+for bin in "${PAYLOAD_ROOT}/usr/bin/byedpid" "${PAYLOAD_ROOT}/usr/bin/byebyectl"; do
+  [ -e "$bin" ] && chown root:wheel "$bin" 2>/dev/null && chmod 755 "$bin" || true
+done
+
+# ios 12 and later show no badge for a daemon tunnel, and a hook there only
+# adds a way to crash springboard
+remove_status_hook
+if [ -z "$JBROOT" ] && [ -n "$HOOK_DIR" ] && [ "$(firmware_major)" -lt 12 ] 2>/dev/null; then
+  if install_status_hook; then
+    HOOK_INSTALLED=1
+  else
+    echo "byebyedpi: cannot install the vpn badge hook into ${HOOK_DIR}" >&2
+  fi
+fi
+
+# host lists named by "hosts = NAME" are read from here, as root
+mkdir -p /var/mobile/Library/Preferences/byebyedpi-hosts 2>/dev/null || true
+chown mobile:mobile /var/mobile/Library/Preferences/byebyedpi-hosts 2>/dev/null || true
+chmod 755 /var/mobile/Library/Preferences/byebyedpi-hosts 2>/dev/null || true
+
+# a second copy of the daemon would hold a second utun and its routes
+if [ -x "${PAYLOAD_ROOT}/usr/bin/byebyectl" ]; then
+  "${PAYLOAD_ROOT}/usr/bin/byebyectl" stop >/dev/null 2>&1 || true
+fi
+
+# the app: dpkg does not tell springboard about a bundle. a rootful springboard only lists bundles on the
+# system Applications volume, a rootless jailbreak registers /var/jb/Applications with its own uicache
+APP_PAYLOAD=${PAYLOAD_ROOT}/Applications/ByeByeDPI.app
+UICACHE=${JBROOT}/usr/bin/uicache
+[ -x "$UICACHE" ] || UICACHE=/usr/bin/uicache
+KILLALL=${JBROOT}/usr/bin/killall
+[ -x "$KILLALL" ] || KILLALL=/usr/bin/killall
+[ -x "$KILLALL" ] || KILLALL=/bin/killall
+INSTALL_CACHE=/var/mobile/Library/Caches/com.apple.mobile.installation.plist
+SU=/bin/su
+[ -x "$SU" ] || SU=/usr/bin/su
+
+install_app() {
+  [ -d "$APP_PAYLOAD" ] || return 1
+  if [ -z "$JBROOT" ]; then
+    APP=/Applications/ByeByeDPI.app
+    rm -rf "${APP}.dpkg-new" 2>/dev/null || true
+    cp -R "$APP_PAYLOAD" "${APP}.dpkg-new" || return 1
+    : > "${APP}.dpkg-new/.byebyedpi-rootful-copy"
+    [ -L "$APP" ] && rm -f "$APP"
+    rm -rf "$APP" 2>/dev/null || true
+    mv "${APP}.dpkg-new" "$APP" || return 1
+    chown -R root:wheel "$APP" 2>/dev/null || true
+    chmod 755 "$APP" "$APP/ByeByeDPI" 2>/dev/null || true
+    # the cached icon bitmap is keyed by the plist's file list, which a new icon does not change
+    rm -f /var/mobile/Library/Caches/com.apple.IconsCache/com.byebyedpi.app_* 2>/dev/null || true
+  else
+    APP=$APP_PAYLOAD
+  fi
+  # the old binary keeps running from memory after an upgrade
+  "$KILLALL" -9 ByeByeDPI >/dev/null 2>&1 || true
+  [ -x "$UICACHE" ] || return 0
+  # ios 7 and older keep the app list in mobile's installation cache, and uicache run as root stops
+  # at "cannot open cache file. incorrect user?"; newer uicache needs root
+  refresh_app_cache() {
+    if [ -z "$JBROOT" ] && [ -f "$INSTALL_CACHE" ] && [ -x "$SU" ]; then
+      "$SU" - mobile -c "$UICACHE -p $APP" && return 0
+      "$SU" - mobile -c "$UICACHE" && return 0
+    fi
+    "$UICACHE" -p "$APP" || "$UICACHE"
+  }
+  # backgrounding avoids an ios 6 uicache deadlock while the old app is still alive
+  ( refresh_app_cache >/dev/null 2>&1 || true ) </dev/null &
+  return 0
+}
+
+install_app || echo "byebyedpi: the app could not be put in place" >&2
+
+# ios 5 and 6 register the app after uicache but keep drawing its icon blank until springboard restarts,
+# and the status hook is loaded by springboard at its start. the delay lets dpkg record the configured
+# state first
+if [ -z "$JBROOT" ] && [ -f "$INSTALL_CACHE" ] && [ "${BYE_SKIP_RESPRING:-0}" != "1" ]; then
+  ( sleep 3; "$KILLALL" -9 SpringBoard >/dev/null 2>&1 || true ) </dev/null >/dev/null 2>&1 &
+elif [ "${HOOK_INSTALLED:-0}" = 1 ]; then
+  echo "byebyedpi: respring once to show the vpn badge" >&2
+fi
+
+# a daemon that does not answer is reported and logged above, but the files are in place:
+# exiting 1 here leaves the package half-configured and cydia then blocks every other install
+launchd_start || echo "byebyedpi: the daemon is not running, see ${LOG}" >&2
+exit 0
