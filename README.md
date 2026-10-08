@@ -1,6 +1,6 @@
 # byebyedpi
 
-<p align="center"><b>dpi bypass and telegram for the whole device, ios 5 to 16, one deb</b></p>
+**dpi bypass and telegram for the whole device, ios 5 to 16, one deb**
 
 > [!NOTE]
 > all devices need a jailbreak.
