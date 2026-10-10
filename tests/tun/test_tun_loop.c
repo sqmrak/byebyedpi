@@ -199,7 +199,7 @@ int main(void) {
     uint8_t p[256], frame[TUN_STACK_FRAME_MAX];
     size_t len;
 
-    /* ---- ping in, answer out, with the right family header ---- */
+    /* ping in, answer out, with the right family header */
     ok("a loop starts on a socketpair", fixture_start(&f, SOCK_DGRAM, 0, 0, 1) == 0);
     len = pkt_echo4(p, APP4, LOCAL4, 1);
     send_packet(&f, p, len);
@@ -219,7 +219,7 @@ int main(void) {
     ok("the v6 answer carries the darwin inet6 family header",
        got >= 4 && frame[0] == 0 && frame[1] == 0 && frame[2] == 0 && frame[3] == 30);
 
-    /* ---- a captured connection, decided on the loop thread ---- */
+    /* a captured connection, decided on the loop thread */
     len = pkt_tcp4(p, APP4, 50001, DEST4, 443, PKT_SYN, 1000, 0, 0);
     send_packet(&f, p, len);
     got = receive_frame(&f, frame, sizeof frame, 2000);
@@ -235,7 +235,7 @@ int main(void) {
     ok("a v6 syn is answered from its original destination",
        got && frame[3] == 30 && memcmp(frame + 4 + 8, DEST6, 16) == 0);
 
-    /* ---- commands from another thread run on the loop thread ---- */
+    /* commands from another thread run on the loop thread */
     ok("a command for this run is taken", post(&f, TUN_LOOP_CMD_OWNER, GENERATION, 77) ==
        TUN_LOOP_OK);
     ok("a command for another run is refused",
@@ -289,8 +289,8 @@ int main(void) {
        f.device.fd == -1);
     fixture_free(&f);
 
-    /* ---- a busy device: blocked writes are parked and none of the parked
-       frames is lost ---- */
+    /* a busy device: blocked writes are parked and none of the parked
+       frames is lost */
     ok("a loop starts with a small send buffer",
        fixture_start(&f, SOCK_DGRAM, 1, 0, 1) == 0);
     for (uint16_t i = 0; i < 24; ++i) {
@@ -310,7 +310,7 @@ int main(void) {
        stats->write_errors == 0 && stats->short_writes == 0);
     fixture_free(&f);
 
-    /* ---- stop while frames are parked and flows are open ---- */
+    /* stop while frames are parked and flows are open */
     flows_requested = flows_closed = 0;
     ok("a loop starts for the stop test", fixture_start(&f, SOCK_DGRAM, 1, 0, 1) == 0);
     for (uint16_t i = 0; i < 16; ++i) {
@@ -331,7 +331,7 @@ int main(void) {
     /* nothing inside lwip may still point at the freed loop */
     sys_check_timeouts();
 
-    /* ---- a fresh loop on the same process-wide lwip works from scratch ---- */
+    /* a fresh loop on the same process-wide lwip works from scratch */
     ok("a new loop starts after the old one was freed",
        fixture_start(&f, SOCK_DGRAM, 0, 0, 1) == 0);
     len = pkt_tcp4(p, APP4, 51000, DEST4, 443, PKT_SYN, 9, 0, 0);
@@ -344,7 +344,7 @@ int main(void) {
     tun_loop_destroy(f.loop);
     fixture_free(&f); /* destroys a second time */
 
-    /* ---- the command queue is bounded, and fills before the loop runs ---- */
+    /* the command queue is bounded, and fills before the loop runs */
     ok("a loop is set up without running", fixture_start(&f, SOCK_DGRAM, 0, 2, 0) == 0);
     ok("first command queued", post(&f, TUN_LOOP_CMD_OWNER, GENERATION, 1) == TUN_LOOP_OK);
     ok("second command queued", post(&f, TUN_LOOP_CMD_OWNER, GENERATION, 2) == TUN_LOOP_OK);
@@ -359,7 +359,7 @@ int main(void) {
     ok("the stopped loop closes its device", f.device.fd == -1);
     fixture_free(&f);
 
-    /* ---- the other end going away ends the loop and says why ---- */
+    /* the other end going away ends the loop and says why */
     ok("a loop starts on a seqpacket pair", fixture_start(&f, SOCK_SEQPACKET, 0, 0, 1) == 0);
     close(f.peer);
     f.peer = -1;

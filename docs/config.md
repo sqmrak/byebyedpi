@@ -69,6 +69,18 @@ omitted options are reported in the app and `/var/log/byebyedpi-system.log`. an 
 
 one domain per line, `#` for comments. a domain includes its subdomains. a bad or missing list prevents the tunnel from starting. with a list selected, connections without a detected hostname are not modified.
 
+## byebyetlsfix
+
+ios before 12 offers tls 1.2 at best, and ios 5 only 1.0. byebyetlsfix is a substrate tweak that puts mbedtls with tls 1.3 support under the system tls of the apps listed in `/var/mobile/Library/Preferences/com.byebyedpi.byebyetlsfix.plist`. it hooks the securetransport functions themselves, because ios 9 shared-cache calls bypass import pointer hooks.
+
+- `enabled-<bundle id>`: `true` turns it on for that app. safari, webkit and troubadour are on after the install
+- `enableAll`: `true` turns it on for every app that loads uikit
+- `tls13`, `drainGuard`, `systemFallback`: `true` by default
+
+an app that was running has to be started again. the log is `/var/log/byebyetlsfix.log`. it needs mobilesubstrate and does nothing on ios 12 and later, which have their own tls 1.3.
+
+`gate: active` only means the app is enabled. `shadow hooks` reports the installed hooks, `shadow ready` reports mbedtls initialization, and `handshake ok` gives the negotiated tls version. with `tls13 = true`, tls 1.2 remains available for servers that need it. a successful strategy check does not prove the app used tls 1.3.
+
 ## telegram
 
 the tunnel carries mtproto over `kwsN.web.telegram.org`. when this fails, it tries a direct connection.

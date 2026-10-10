@@ -1,6 +1,4 @@
-# cross-compile byedpid and byebyectl against static openssl for
-# jailbroken ios devices. static linkage keeps the runtime dependency limited
-# to the system libraries
+# static openssl keeps the daemon independent of jailbreak tls libraries
 
 ifneq ($(MAKECMDGOALS),clean)
 THEOS   ?= $(error set THEOS=/path/to/theos)
@@ -15,7 +13,7 @@ BYE_AR  ?= $(TC)/llvm-ar
 CRT     ?=
 EXTRA_CFLAGS ?=
 
-# target and library variables stay overrideable for each device slice
+
 TRIPLE  ?= arm-apple-darwin11
 CC      := $(TC)/clang -target $(TRIPLE) -B $(TC)
 ARCH    ?= -arch armv7 -miphoneos-version-min=5.0
@@ -23,8 +21,7 @@ IOS_BINDIR ?= build/ios
 CFLAGS  := -std=c99 -Wall -Wextra -O2 $(EXTRA_CFLAGS) $(ARCH) -isysroot $(SDK) \
            -I../core -I. -Itun -Itun/core -I$(OSSL)/include \
            -Itun/lwip_port -Itun/third_party/lwip/src/include
-# link archives directly because the device has no openssl to depend on, and
-# drop unreachable archive code so the static libraries do not inflate a slice
+# strip unused archive code from each slice
 LIBS    := $(OSSL)/lib/libssl.a $(OSSL)/lib/libcrypto.a
 LDFLAGS := $(ARCH) -isysroot $(SDK) -Wl,-dead_strip $(if $(CRT),-nostartfiles $(CRT),)
 
@@ -40,9 +37,7 @@ LWIP_SRC = $(wildcard $(LWIP_DIR)/core/*.c) $(wildcard $(LWIP_DIR)/core/ipv4/*.c
            $(wildcard $(LWIP_DIR)/core/ipv6/*.c) tun/lwip_port/lwip_sys.c
 LWIP_OBJ = $(patsubst %.c,$(IOS_BINDIR)/%.o,$(LWIP_SRC))
 LWIP_LIB = $(IOS_BINDIR)/libbye_lwip.a
-# a __RESTRICT segment makes dyld ignore DYLD_INSERT_LIBRARIES, which is how
-# substrate loads tweaks. the daemon runs as root and owns the routes, and a
-# tweak hooking connect() inside it would break every flow
+# __RESTRICT prevents injected connect hooks from changing the daemon's direct sockets
 RESTRICT_LDFLAGS := -Wl,-sectcreate,__RESTRICT,__restrict,/dev/null
 
 .PHONY: all clean

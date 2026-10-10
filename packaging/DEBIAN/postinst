@@ -183,7 +183,7 @@ if [ -z "$JBROOT" ] && [ -n "$HOOK_DIR" ] && [ "$(firmware_major)" -lt 12 ] 2>/d
   install_byebyetlsfix || echo "byebyedpi: cannot install byebyetlsfix into ${HOOK_DIR}" >&2
 fi
 
-# host lists named by "hosts = NAME" are read from here, as root
+
 mkdir -p /var/mobile/Library/Preferences/byebyedpi-hosts 2>/dev/null || true
 chown mobile:mobile /var/mobile/Library/Preferences/byebyedpi-hosts 2>/dev/null || true
 chmod 755 /var/mobile/Library/Preferences/byebyedpi-hosts 2>/dev/null || true
@@ -193,8 +193,7 @@ if [ -x "${PAYLOAD_ROOT}/usr/bin/byebyectl" ]; then
   "${PAYLOAD_ROOT}/usr/bin/byebyectl" stop >/dev/null 2>&1 || true
 fi
 
-# the app: dpkg does not tell springboard about a bundle. a rootful springboard only lists bundles on the
-# system Applications volume, a rootless jailbreak registers /var/jb/Applications with its own uicache
+# rootful springboard lists /Applications, rootless uicache registers /var/jb/Applications
 APP_PAYLOAD=${PAYLOAD_ROOT}/Applications/ByeByeDPI.app
 UICACHE=${JBROOT}/usr/bin/uicache
 [ -x "$UICACHE" ] || UICACHE=/usr/bin/uicache
@@ -241,9 +240,8 @@ install_app() {
 
 install_app || echo "byebyedpi: the app could not be put in place" >&2
 
-# ios 5 and 6 register the app after uicache but keep drawing its icon blank until springboard restarts,
-# and the status hook is loaded by springboard at its start. the delay lets dpkg record the configured
-# state first
+# ios 5 and 6 need a respring to draw the new icon and load the badge hook
+# let dpkg record the configured state before springboard exits
 if [ -z "$JBROOT" ] && [ -f "$INSTALL_CACHE" ] && [ "${BYE_SKIP_RESPRING:-0}" != "1" ]; then
   ( sleep 3; "$KILLALL" -9 SpringBoard >/dev/null 2>&1 || true ) </dev/null >/dev/null 2>&1 &
 elif [ "${HOOK_INSTALLED:-0}" = 1 ]; then

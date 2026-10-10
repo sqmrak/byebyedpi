@@ -69,7 +69,7 @@ make -C "${ROOT}/daemon" -f Makefile.ios \
 cp "${ROOT}/daemon/build/ios-arm64/byedpid" "${ROOT}/daemon/build/ios-arm64/byebyectl" \
    "${SLICE}/arm64/"
 
-# the app is built the same way, one slice at a time
+
 echo "==> app armv7"
 make -C "${ROOT}/app" -f Makefile.ios clean
 make -C "${ROOT}/app" -f Makefile.ios \
@@ -109,7 +109,7 @@ mkdir -p "${APPX_SLICE}"
 "${TC}/ldid" -S"${ROOT}/app/tunnel/entitlements.plist" "${APPX_SLICE}/ByeTunnel"
 cp "${ROOT}/app/tunnel/Info.plist" "${APPX_SLICE}/Info.plist"
 
-# ios 12 and later get no hook, so the dylib needs no slice newer than arm64
+
 echo "==> status hook armv7"
 "${TC}/clang" -target arm-apple-darwin11 -B "${TC}" \
   -fno-objc-arc -Wall -Wextra -O2 -fPIC \
@@ -212,7 +212,7 @@ for bin in "${PAYLOAD}/usr/bin/byedpid" "${PAYLOAD}/usr/bin/byebyectl" \
 done
 
 echo "==> generate md5sums (data files only, no ./ prefix)"
-# checksums run after chmod so they describe the final payload bytes
+
 (
   cd "${STAGE}"
   : > DEBIAN/md5sums
@@ -225,7 +225,7 @@ echo "==> generate md5sums (data files only, no ./ prefix)"
 )
 
 echo "==> pack deb (cydia-safe tar/ar)"
-# GNU headers remain readable by the oldest supported device dpkg, and fixed
+# gnu headers remain readable by the oldest supported device dpkg, and fixed
 # mtimes make identical payloads reproducible
 pack_tar() {
   local out="$1"; shift

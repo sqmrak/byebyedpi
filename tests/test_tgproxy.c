@@ -42,7 +42,7 @@ static void xor_stream(EVP_CIPHER_CTX *c, uint8_t *data, size_t len) {
     CHECK(EVP_EncryptUpdate(c, data, &n, data, (int)len) == 1 && (size_t)n == len);
 }
 
-/* ---- the gateway ---------------------------------------------------------- */
+
 
 typedef struct {
     int  used;
@@ -284,7 +284,7 @@ static void gate_reset(void) {
     pthread_mutex_unlock(&gate.lock);
 }
 
-/* ---- the client ------------------------------------------------------------ */
+
 
 typedef struct {
     int             fd;
@@ -389,7 +389,7 @@ static int client_echo(client_t *cl, size_t words) {
     return rc;
 }
 
-/* ---- the proxy ------------------------------------------------------------- */
+
 
 static int plain_socket(void *ctx, int family, int type, char *error, size_t cap) {
     (void)ctx;

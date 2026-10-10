@@ -19,9 +19,7 @@ LAUNCHCTL=${JBROOT}/bin/launchctl
 [ -x "$LAUNCHCTL" ] || LAUNCHCTL=/bin/launchctl
 [ -x "$LAUNCHCTL" ] || LAUNCHCTL=/usr/bin/launchctl
 
-# the routes and the utun belong to the daemon, and dpkg deletes the binaries
-# that know how to undo them moments after this script returns. asking the
-# daemon to stop while it is still on disk is the only clean teardown
+# let the daemon remove its routes before dpkg removes the binaries
 if [ -S /var/tmp/byedpid.sock ] && [ -x "$BYEBYECTL" ]; then
   "$BYEBYECTL" stop >/dev/null 2>&1 || true
 fi

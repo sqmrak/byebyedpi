@@ -68,7 +68,7 @@ static int write_full(int fd, const uint8_t *buf, size_t n) {
     return 0;
 }
 
-/* ---- an echo server that records what it was sent ------------------------ */
+
 
 #define RECORD_MAX (512u * 1024u)
 #define SERVER_CONNS 16
@@ -182,7 +182,7 @@ static void echo_forget(echo_t *echo) {
     pthread_mutex_unlock(&echo->lock);
 }
 
-/* ---- a stand-in for telegram's gateway and datacenter -------------------- */
+
 
 typedef struct {
     int      used;
@@ -477,7 +477,7 @@ static void gate_forget(void) {
     pthread_mutex_unlock(&gate.lock);
 }
 
-/* ---- the tunnel under test ------------------------------------------------ */
+
 
 enum { WAY_DIRECT, WAY_DESYNC, WAY_TELEGRAM };
 
@@ -604,7 +604,7 @@ static void tunnel_stop(void) {
     free(tunnel.udp);
 }
 
-/* ---- an app speaking tcp by hand ------------------------------------------ */
+
 
 #define APP_RX_MAX (1024u * 1024u)
 #define MSS 1300
@@ -846,7 +846,7 @@ static int app_read(app_t *a, size_t want, int wait_ms) {
     return a->rx_len >= want;
 }
 
-/* ---- the mtproto client ---------------------------------------------------- */
+
 
 typedef struct {
     EVP_CIPHER_CTX *enc;
@@ -897,7 +897,7 @@ static size_t abridged_packet(uint8_t *out, size_t words, uint8_t fill) {
     return at + words * 4;
 }
 
-/* ---- the tests -------------------------------------------------------------- */
+
 
 static void test_direct(void) {
     static app_t a;
@@ -1047,7 +1047,7 @@ static void test_desync(void) {
     echo_forget(&desync_echo);
 }
 
-/* ---- a server that behaves like a filter ----------------------------------- */
+
 
 typedef enum {
     F_REJECT_CUT,   /* resets a hello whose first record is not the whole hello */

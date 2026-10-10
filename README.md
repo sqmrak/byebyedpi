@@ -30,8 +30,27 @@ settings and supported options: [config](docs/config.md).
 - russian, english
 - diagnostics in the app or `byebyectl`
 - vpn badge on ios 5-11 with substrate
+- byebyetlsfix: tls 1.3 for the apps you list on ios 5-11 with substrate, see [config](docs/config.md)
 
 older `dns = system` settings use `1.1.1.1` after the upgrade.
+
+## use
+
+open the app, choose a strategy and turn the tunnel on. `auto` tries another strategy when a tls connection gets no answer. a custom strategy retries only when its ByeDPI options include `-A`.
+
+choose a domain list to limit the cuts to those hosts, or leave lists off for all traffic. quic blocking is on by default so youtube uses tcp.
+
+the strategy check counts a tls handshake response as a pass. check the website and playback in the app you use too.
+
+## old ios tls
+
+byebyetlsfix adds tls 1.3 to safari, webkit and troubadour on ios 5-11 with mobilesubstrate. tls 1.2 stays available for servers that need it. certificates are still checked.
+
+prefs: `/var/mobile/Library/Preferences/com.byebyedpi.byebyetlsfix.plist`. add `enabled-<bundle id>` with a boolean `true` to enable another app. restart that app after changing the prefs or upgrading the shim. ios 12 and later use system tls.
+
+the log is `/var/log/byebyetlsfix.log`. `handshake ok: ... [TLSv1.3]` confirms the negotiated version; `gate: active` only means the app is enabled. settings: [config](docs/config.md#byebyetlsfix).
+
+checked on iphone 4s, ios 9.3.6: youtube in troubadour.
 
 ## install
 
@@ -49,17 +68,24 @@ remove: `dpkg -r com.byebyedpi.daemon`
 - config: `/var/root/Library/Preferences/byebyedpi.cfg`
 - socket: `/var/tmp/byedpid.sock`
 - log: `/var/log/byebyedpi-system.log`
+- tls log: `/var/log/byebyetlsfix.log`
 - host lists: `/var/mobile/Library/Preferences/byebyedpi-hosts/`
 - app: `/Applications/ByeByeDPI.app` (rootless: `/var/jb/Applications/ByeByeDPI.app`)
 
 ## build
 
 ```bash
-make -C tests test
-./build_deb.sh
+make test
+make deb
 ```
 
-needs `THEOS BYE_SDK_V7 BYE_SDK_V64 BYE_CRT_V7 BYE_OSSL_V7 BYE_OSSL_V64 BYE_CA_BUNDLE_SRC`, outputs `byebyedpi-v<version>.deb`.
+needs `THEOS BYE_SDK_V7 BYE_SDK_V64 BYE_CRT_V7 BYE_OSSL_V7 BYE_OSSL_V64 BYE_CA_BUNDLE_SRC BYE_MBED`, outputs `byebyedpi-v<version>.deb`.
+
+`BYE_MBED` must hold mbedtls 3.6 libraries with tls 1.3, one set per slice. `BYE_DEB_OUT` changes the output directory. the build runs host tests, signs armv7 and arm64, then checks the archive, permissions, resources and checksums. to check an existing deb:
+
+```bash
+./scripts/verify_deb.sh byebyedpi-v1.1.0-stable.deb
+```
 
 ## license
 

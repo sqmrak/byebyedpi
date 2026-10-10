@@ -1,5 +1,4 @@
-# cross-compile the app binary for one slice of a jailbroken ios device. the
-# bundle itself is put together by ../build_deb.sh
+# build one slice, ../build_deb.sh assembles the bundle
 
 ifneq ($(MAKECMDGOALS),clean)
 THEOS   ?= $(error set THEOS=/path/to/theos)

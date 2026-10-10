@@ -311,7 +311,7 @@ static void test_strategies(void) {
     CHECK(!plan.has_name && !plan.applied && plan.count == 1);
 }
 
-/* ---- the options of ciadpi ---------------------------------------------------- */
+
 
 static bye_strategies_t cli_ok(const char *text) {
     bye_strategies_t list;

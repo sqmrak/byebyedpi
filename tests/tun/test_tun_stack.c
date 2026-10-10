@@ -31,7 +31,7 @@ static const uint8_t LOCAL6[16] = { 0xfd, 0, 0x5e, 0x4b, 0,0,0,0, 0,0,0,0, 0,0,0
 static const uint8_t SYNTH6[16] = { 0xfd, 0, 0x5e, 0x4b, 0,0,0,0, 0,0,0,0, 0,0,0,3 };
 static const uint8_t DEST6[16]  = { 0x20, 0x01, 0x0d, 0xb8, 0,0,0,0, 0,0,0,0, 0,0,0,7 };
 
-/* ---- a device that records frames --------------------------------------- */
+
 
 #define SENT_MAX 96
 
@@ -81,7 +81,7 @@ static const uint8_t *last_packet(size_t *len) {
     return device.frames[device.count - 1] + 4;
 }
 
-/* ---- an owner that records flow events ---------------------------------- */
+
 
 #define EVENT_MAX 128
 
