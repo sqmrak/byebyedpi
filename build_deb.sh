@@ -185,6 +185,7 @@ cp "${CA_SRC}" "${PAYLOAD}/usr/lib/byebyedpi/byebyetlsfix/cacert.pem"
 cp "${ROOT}/byebyetlsfix/roots/"*.pem "${PAYLOAD}/usr/lib/byebyedpi/byebyetlsfix/roots/"
 cp "${ROOT}/LICENSE" "${ROOT}/NOTICE" "${PAYLOAD}/usr/share/doc/byebyedpi/"
 cp "${ROOT}/licenses/tg-ws-proxy-MIT.txt" "${ROOT}/licenses/mbedtls-LICENSE.txt" "${PAYLOAD}/usr/share/doc/byebyedpi/"
+cp "${ROOT}/licenses/domain-list-community-MIT.txt" "${PAYLOAD}/usr/share/doc/byebyedpi/"
 cp "${ROOT}/daemon/tun/third_party/lwip/COPYING" "${PAYLOAD}/usr/share/doc/byebyedpi/lwip-COPYING"
 
 # normalized metadata prevents legacy dpkg from rejecting builder ownership

@@ -53,7 +53,7 @@ done
 [ -x data/var/jb/usr/lib/byebyedpi/status.dylib ] || fail "status hook payload missing"
 grep -q 'com.apple.springboard' data/var/jb/usr/lib/byebyedpi/status.plist || fail "status hook filter missing"
 grep -q 'byebyedpi-status.dylib' control/postinst || fail "status hook installer missing"
-for doc in LICENSE NOTICE tg-ws-proxy-MIT.txt lwip-COPYING; do
+for doc in LICENSE NOTICE tg-ws-proxy-MIT.txt lwip-COPYING mbedtls-LICENSE.txt domain-list-community-MIT.txt; do
   [ -s "data/var/jb/usr/share/doc/byebyedpi/${doc}" ] || fail "license text ${doc} missing"
 done
 grep -q '<string>/var/jb/usr/bin/byedpid</string>' \
