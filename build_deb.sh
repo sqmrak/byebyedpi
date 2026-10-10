@@ -69,7 +69,6 @@ make -C "${ROOT}/daemon" -f Makefile.ios \
 cp "${ROOT}/daemon/build/ios-arm64/byedpid" "${ROOT}/daemon/build/ios-arm64/byebyectl" \
    "${SLICE}/arm64/"
 
-
 echo "==> app armv7"
 make -C "${ROOT}/app" -f Makefile.ios clean
 make -C "${ROOT}/app" -f Makefile.ios \
@@ -108,7 +107,6 @@ mkdir -p "${APPX_SLICE}"
   -framework Foundation -framework NetworkExtension -lobjc
 "${TC}/ldid" -S"${ROOT}/app/tunnel/entitlements.plist" "${APPX_SLICE}/ByeTunnel"
 cp "${ROOT}/app/tunnel/Info.plist" "${APPX_SLICE}/Info.plist"
-
 
 echo "==> status hook armv7"
 "${TC}/clang" -target arm-apple-darwin11 -B "${TC}" \
@@ -212,7 +210,6 @@ for bin in "${PAYLOAD}/usr/bin/byedpid" "${PAYLOAD}/usr/bin/byebyectl" \
 done
 
 echo "==> generate md5sums (data files only, no ./ prefix)"
-
 (
   cd "${STAGE}"
   : > DEBIAN/md5sums

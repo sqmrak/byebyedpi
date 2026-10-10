@@ -312,7 +312,6 @@ static void test_strategies(void) {
 }
 
 
-
 static bye_strategies_t cli_ok(const char *text) {
     bye_strategies_t list;
     char error[96];

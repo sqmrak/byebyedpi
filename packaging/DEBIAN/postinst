@@ -183,7 +183,6 @@ if [ -z "$JBROOT" ] && [ -n "$HOOK_DIR" ] && [ "$(firmware_major)" -lt 12 ] 2>/d
   install_byebyetlsfix || echo "byebyedpi: cannot install byebyetlsfix into ${HOOK_DIR}" >&2
 fi
 
-
 mkdir -p /var/mobile/Library/Preferences/byebyedpi-hosts 2>/dev/null || true
 chown mobile:mobile /var/mobile/Library/Preferences/byebyedpi-hosts 2>/dev/null || true
 chmod 755 /var/mobile/Library/Preferences/byebyedpi-hosts 2>/dev/null || true

@@ -69,7 +69,6 @@ static int write_full(int fd, const uint8_t *buf, size_t n) {
 }
 
 
-
 #define RECORD_MAX (512u * 1024u)
 #define SERVER_CONNS 16
 
@@ -181,7 +180,6 @@ static void echo_forget(echo_t *echo) {
     }
     pthread_mutex_unlock(&echo->lock);
 }
-
 
 
 typedef struct {
@@ -478,7 +476,6 @@ static void gate_forget(void) {
 }
 
 
-
 enum { WAY_DIRECT, WAY_DESYNC, WAY_TELEGRAM };
 
 static echo_t direct_echo, desync_echo, fallback_echo;
@@ -603,7 +600,6 @@ static void tunnel_stop(void) {
     free(tunnel.tcp);
     free(tunnel.udp);
 }
-
 
 
 #define APP_RX_MAX (1024u * 1024u)
@@ -847,7 +843,6 @@ static int app_read(app_t *a, size_t want, int wait_ms) {
 }
 
 
-
 typedef struct {
     EVP_CIPHER_CTX *enc;
     EVP_CIPHER_CTX *dec;
@@ -896,7 +891,6 @@ static size_t abridged_packet(uint8_t *out, size_t words, uint8_t fill) {
     for (size_t i = 0; i < words * 4; ++i) out[at + i] = (uint8_t)(fill + i);
     return at + words * 4;
 }
-
 
 
 static void test_direct(void) {
@@ -1046,7 +1040,6 @@ static void test_desync(void) {
     app_forget(&a);
     echo_forget(&desync_echo);
 }
-
 
 
 typedef enum {

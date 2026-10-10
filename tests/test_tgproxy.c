@@ -43,7 +43,6 @@ static void xor_stream(EVP_CIPHER_CTX *c, uint8_t *data, size_t len) {
 }
 
 
-
 typedef struct {
     int  used;
     int  init_ok;
@@ -285,7 +284,6 @@ static void gate_reset(void) {
 }
 
 
-
 typedef struct {
     int             fd;
     EVP_CIPHER_CTX *enc;
@@ -388,7 +386,6 @@ static int client_echo(client_t *cl, size_t words) {
     free(wire);
     return rc;
 }
-
 
 
 static int plain_socket(void *ctx, int family, int type, char *error, size_t cap) {

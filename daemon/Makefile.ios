@@ -13,7 +13,6 @@ BYE_AR  ?= $(TC)/llvm-ar
 CRT     ?=
 EXTRA_CFLAGS ?=
 
-
 TRIPLE  ?= arm-apple-darwin11
 CC      := $(TC)/clang -target $(TRIPLE) -B $(TC)
 ARCH    ?= -arch armv7 -miphoneos-version-min=5.0
