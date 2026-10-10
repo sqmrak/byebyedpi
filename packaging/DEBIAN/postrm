@@ -44,6 +44,9 @@ if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
   for dir in /Library/MobileSubstrate/DynamicLibraries /usr/lib/TweakInject; do
     rm -f "${dir}/byebyedpi-status.dylib" "${dir}/byebyedpi-status.plist"
   done
+  for dir in /Library/MobileSubstrate/DynamicLibraries /usr/lib/TweakInject; do
+    rm -f "${dir}/byebyetlsfix.dylib" "${dir}/byebyetlsfix.plist"
+  done
   rm -f /var/mobile/Library/Preferences/com.byebyedpi.status.state \
         /var/mobile/Library/Preferences/com.byebyedpi.status.log
   remove_rootful_link /usr/bin/byedpid "${PAYLOAD_ROOT}/usr/bin/byedpid"

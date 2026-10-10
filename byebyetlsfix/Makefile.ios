@@ -1,0 +1,37 @@
+# resolve substrate at runtime so a missing hook engine leaves system tls active
+
+THEOS   ?= $(error set THEOS=/path/to/theos)
+TC      ?= $(if $(BYE_TC),$(BYE_TC),$(THEOS)/toolchain/linux/iphone/bin)
+SDK     ?= $(if $(BYE_SDK),$(BYE_SDK),$(error set SDK=/path/to/iphoneos.sdk))
+LDID    ?= $(TC)/ldid
+EXTRA_CFLAGS ?=
+INSTALL_NAME ?= /var/jb/usr/lib/byebyedpi/byebyetlsfix.dylib
+# static archives of mbedtls 3.6 with tls 1.3, one per slice
+MBED    ?= $(if $(BYE_MBED),$(BYE_MBED),$(error set MBED=/path/to/mbedtls-output))
+
+TRIPLE  ?= arm-apple-darwin11
+CC      := $(TC)/clang -target $(TRIPLE) -B $(TC)
+ARCH    ?= -arch armv7 -miphoneos-version-min=5.0
+CFLAGS  := -std=c99 -Wall -Wextra -O2 -fPIC $(EXTRA_CFLAGS) $(ARCH) -isysroot $(SDK) \
+           -I. -I../daemon/tun -I$(MBED)/include -DMBEDTLS_PLATFORM_MS_TIME_ALT
+LDFLAGS := $(ARCH) -isysroot $(SDK) -dynamiclib -Wl,-no_warn_inits \
+           -install_name $(INSTALL_NAME) \
+           -framework Security -framework CoreFoundation
+
+SRC = stl_hooks.c stl_gate.c stl_log.c stl_roots.c stl_shadow.c stl_trust.c stl_init.c \
+      ms_time_ios.c builtins.c ../daemon/tun/legacy_ios.c
+MBEDLIBS ?= $(MBED)/lib/libmbedtls-armv7.a \
+            $(MBED)/lib/libmbedx509-armv7.a \
+            $(MBED)/lib/libmbedcrypto-armv7.a
+OUT     ?= byebyetlsfix.dylib
+
+.PHONY: all clean
+all: $(OUT)
+
+$(OUT): $(SRC) $(wildcard *.h) $(MBEDLIBS)
+	$(CC) $(CFLAGS) $(SRC) -o $@ $(LDFLAGS) $(MBEDLIBS)
+	$(LDID) -S $@
+	@echo "built $(OUT)"
+
+clean:
+	rm -f byebyetlsfix.dylib byebyetlsfix-*.dylib

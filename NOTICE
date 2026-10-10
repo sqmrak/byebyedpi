@@ -6,6 +6,9 @@ the telegram gateway follows the method of tg-ws-proxy by Flowseal (mit,
 licenses/tg-ws-proxy-MIT.txt) as used in ByeByeDPI x tg by EwenLoy. the code
 here is written from the protocol, not copied.
 
+byebyetlsfix is the tls shim of senko (senkotlsfix, gpl v2), see byebyetlsfix/VENDOR. it
+carries mbedtls 3.6 (apache 2.0 or gpl 2 or later, licenses/mbedtls-LICENSE.txt).
+
 the tunnel layer in daemon/tun is vendored from senko (gpl v2), see
 daemon/tun/VENDOR. it carries lwip 2.2.1 (bsd 3 clause,
 daemon/tun/third_party/lwip/COPYING).

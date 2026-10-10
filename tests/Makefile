@@ -24,7 +24,7 @@ THREAD_LDFLAGS = -pthread
 TUN_TESTS = test_tun_plan test_utun_framing test_route_message test_route_socket \
             test_lwip_smoke test_tun_throughput test_tun_nat test_tun_stack test_tun_loop test_legacy_ios test_proc_detach
 
-HOST_TESTS = test_sniff test_desync test_mtp test_ws test_tg test_config test_config_file test_hosts test_status test_reply test_client test_hostsfile test_altaddr test_probe test_probe_dns test_fuzz test_wsconn test_tgproxy test_flows test_gateway_resolve test_tcp_first test_external_interface test_start_error test_physical_path
+HOST_TESTS = test_sniff test_desync test_mtp test_ws test_tg test_config test_config_file test_hosts test_status test_reply test_client test_hostsfile test_altaddr test_probe test_probe_dns test_fuzz test_wsconn test_tgproxy test_flows test_gateway_resolve test_tcp_first test_external_interface test_start_error test_physical_path test_tls_hooks
 
 .PHONY: all test clean sanitize test_ctl probe benchmark
 all: test
@@ -32,6 +32,9 @@ all: test
 test: $(HOST_TESTS) $(TUN_TESTS)
 	@for t in $(HOST_TESTS) $(TUN_TESTS); do ./$$t || exit 1; done
 	$(MAKE) test_ctl
+
+test_tls_hooks: test_tls_hooks.c ../byebyetlsfix/stl_hooks.c ../byebyetlsfix/stl_hooks.h ../byebyetlsfix/stl_log.h ../byebyetlsfix/stl_init.c ../byebyetlsfix/stl_gate.h ../byebyetlsfix/stl_shadow.h check.h
+	$(CC) $(CFLAGS) test_tls_hooks.c -o $@
 
 test_sniff: test_sniff.c $(CORE)/bye_sniff.c check.h hello_openssl.inc
 	$(CC) $(CFLAGS) $(TLS_CFLAGS) test_sniff.c $(CORE)/bye_sniff.c -o $@ $(TLS_LDFLAGS)

@@ -1,0 +1,13 @@
+byebyetlsfix is senko's senkotlsfix (senko/senkotlsfix), taken without stl_proxy.c, which hooks connect
+for senko's own socks port and is no use here.
+
+changed on the way in: the paths (tlsfix_paths.h), the prefs plist and the log file, the default
+bundle list (Troubadour instead of senko's app), and the gate stays off when a tlsfix package or
+senko's copy sits in the substrate directory. the names carry bye so they never meet senko's.
+
+the securetransport and trust hooks use substrate's MSHookFunction instead of fishhook.
+on ios 9.3.6, shared-cache calls bypass the imported symbol pointers, leaving cfnetwork on
+system tls 1.2 even with the shim loaded. the empty SecTrustSetAnchorCertificates hook is removed.
+ssl contexts use the corefoundation finalizer for teardown on ios 5 and later, because
+SSLDisposeContext is a desktop api. the finalizer lookup is guarded; without it the shim
+leaves securetransport unchanged and logs the missing lifecycle hook.

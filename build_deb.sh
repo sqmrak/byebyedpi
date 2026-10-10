@@ -26,6 +26,7 @@ CRT_V7="${BYE_CRT_V7:?set BYE_CRT_V7 to the armv7 startup object}"
 OSSL_V7="${BYE_OSSL_V7:?set BYE_OSSL_V7 to the armv7 openssl prefix}"
 OSSL_V64="${BYE_OSSL_V64:?set BYE_OSSL_V64 to the arm64 openssl prefix}"
 CA_SRC="${BYE_CA_BUNDLE_SRC:?set BYE_CA_BUNDLE_SRC to a pem bundle of trust roots}"
+MBED="${BYE_MBED:?set BYE_MBED to the mbedtls static libraries, armv7 and arm64}"
 [ -s "${CA_SRC}" ] || { echo "empty or missing ${CA_SRC}" >&2; exit 1; }
 STAGE="${ROOT}/.package-stage"
 SLICE="${ROOT}/.build-slices"
@@ -35,6 +36,7 @@ PAYLOAD="${STAGE}${JBROOT}"
 
 cleanup_build_outputs() {
   rm -rf "${STAGE}" "${SLICE}" "${ROOT}/daemon/build" "${ROOT}/app/build"
+  rm -f "${ROOT}/byebyetlsfix/"byebyetlsfix*.dylib
   env PATH="${HOST_PATH}" make -C "${ROOT}/tests" clean >/dev/null 2>&1 || true
 }
 
@@ -129,6 +131,29 @@ echo "==> status hook arm64"
 "${TC}/strip" -x "${SLICE}/status.dylib"
 "${TC}/ldid" -S "${SLICE}/status.dylib"
 
+echo "==> byebyetlsfix armv7"
+make -C "${ROOT}/byebyetlsfix" -f Makefile.ios clean \
+  THEOS="${THEOS}" TC="${TC}" LDID="${TC}/ldid" SDK="${SDK_V7}" MBED="${MBED}"
+make -C "${ROOT}/byebyetlsfix" -f Makefile.ios \
+  THEOS="${THEOS}" TC="${TC}" LDID="${TC}/ldid" \
+  TRIPLE=arm-apple-darwin11 SDK="${SDK_V7}" \
+  ARCH="-arch armv7 -miphoneos-version-min=5.0" \
+  MBED="${MBED}" MBEDLIBS="${MBED}/lib/libmbedtls-armv7.a ${MBED}/lib/libmbedx509-armv7.a ${MBED}/lib/libmbedcrypto-armv7.a" \
+  OUT=byebyetlsfix-armv7.dylib
+cp "${ROOT}/byebyetlsfix/byebyetlsfix-armv7.dylib" "${SLICE}/"
+
+echo "==> byebyetlsfix arm64"
+make -C "${ROOT}/byebyetlsfix" -f Makefile.ios \
+  THEOS="${THEOS}" TC="${TC}" LDID="${TC}/ldid" \
+  TRIPLE=arm64-apple-darwin SDK="${SDK_V64}" \
+  ARCH="-arch arm64 -miphoneos-version-min=7.0" \
+  MBED="${MBED}" MBEDLIBS="${MBED}/lib/libmbedtls-arm64.a ${MBED}/lib/libmbedx509-arm64.a ${MBED}/lib/libmbedcrypto-arm64.a" \
+  OUT=byebyetlsfix-arm64.dylib
+cp "${ROOT}/byebyetlsfix/byebyetlsfix-arm64.dylib" "${SLICE}/"
+"${LIPO}" -create "${SLICE}/byebyetlsfix-armv7.dylib" "${SLICE}/byebyetlsfix-arm64.dylib" -output "${SLICE}/byebyetlsfix.dylib"
+"${TC}/strip" -x "${SLICE}/byebyetlsfix.dylib"
+"${TC}/ldid" -S "${SLICE}/byebyetlsfix.dylib"
+
 echo "==> stage packaging"
 rm -rf "${STAGE}"
 APP="${PAYLOAD}/Applications/ByeByeDPI.app"
@@ -137,7 +162,7 @@ if [[ "${APP_VERSION}" != "${PKG_VERSION}" ]]; then
   echo "app/Info.plist says ${APP_VERSION:-<empty>}, packaging/DEBIAN/control says ${PKG_VERSION}" >&2
   exit 1
 fi
-mkdir -p "${STAGE}/DEBIAN" "${PAYLOAD}/usr/bin" "${PAYLOAD}/usr/lib/byebyedpi" \
+mkdir -p "${STAGE}/DEBIAN" "${PAYLOAD}/usr/bin" "${PAYLOAD}/usr/lib/byebyedpi/byebyetlsfix/roots" \
          "${PAYLOAD}/usr/share/doc/byebyedpi" "${PAYLOAD}/Library/LaunchDaemons" "${APP}"
 cp "${ROOT}/packaging/DEBIAN/"{control,postinst,postrm,prerm} "${STAGE}/DEBIAN/"
 cp "${ROOT}/packaging/Library/LaunchDaemons/com.byebyedpi.byedpid.plist" \
@@ -153,13 +178,21 @@ cp -R "${APPX_SLICE}" "${APP}/PlugIns/"
 cp "${CA_SRC}" "${PAYLOAD}/usr/lib/byebyedpi/cacert.pem"
 cp "${SLICE}/status.dylib" "${PAYLOAD}/usr/lib/byebyedpi/status.dylib"
 cp "${ROOT}/status/bye_status.plist" "${PAYLOAD}/usr/lib/byebyedpi/status.plist"
+cp "${SLICE}/byebyetlsfix.dylib" "${PAYLOAD}/usr/lib/byebyedpi/byebyetlsfix.dylib"
+cp "${ROOT}/byebyetlsfix/byebyetlsfix.plist" "${PAYLOAD}/usr/lib/byebyedpi/byebyetlsfix.plist"
+cp "${ROOT}/byebyetlsfix/prefs.plist" "${PAYLOAD}/usr/lib/byebyedpi/byebyetlsfix/prefs.plist"
+cp "${CA_SRC}" "${PAYLOAD}/usr/lib/byebyedpi/byebyetlsfix/cacert.pem"
+cp "${ROOT}/byebyetlsfix/roots/"*.pem "${PAYLOAD}/usr/lib/byebyedpi/byebyetlsfix/roots/"
 cp "${ROOT}/LICENSE" "${ROOT}/NOTICE" "${PAYLOAD}/usr/share/doc/byebyedpi/"
-cp "${ROOT}/licenses/tg-ws-proxy-MIT.txt" "${PAYLOAD}/usr/share/doc/byebyedpi/"
+cp "${ROOT}/licenses/tg-ws-proxy-MIT.txt" "${ROOT}/licenses/mbedtls-LICENSE.txt" "${PAYLOAD}/usr/share/doc/byebyedpi/"
 cp "${ROOT}/daemon/tun/third_party/lwip/COPYING" "${PAYLOAD}/usr/share/doc/byebyedpi/lwip-COPYING"
 
 # normalized metadata prevents legacy dpkg from rejecting builder ownership
 chmod 755 "${PAYLOAD}/usr/bin/byedpid" "${PAYLOAD}/usr/bin/byebyectl"
-chmod 755 "${PAYLOAD}/usr/lib/byebyedpi/status.dylib" "${APP}" "${APP}/ByeByeDPI"
+chmod 755 "${PAYLOAD}/usr/lib/byebyedpi/status.dylib" "${PAYLOAD}/usr/lib/byebyedpi/byebyetlsfix.dylib" "${APP}" "${APP}/ByeByeDPI"
+chmod 755 "${PAYLOAD}/usr/lib/byebyedpi/byebyetlsfix" "${PAYLOAD}/usr/lib/byebyedpi/byebyetlsfix/roots"
+chmod 644 "${PAYLOAD}/usr/lib/byebyedpi/byebyetlsfix.plist" "${PAYLOAD}/usr/lib/byebyedpi/byebyetlsfix/"*.pem \
+          "${PAYLOAD}/usr/lib/byebyedpi/byebyetlsfix/roots/"*.pem "${PAYLOAD}/usr/lib/byebyedpi/byebyetlsfix/prefs.plist"
 find "${APP}" -type f ! -name ByeByeDPI ! -name ByeTunnel -exec chmod 644 {} +
 chmod 755 "${APP}/PlugIns/ByeTunnel.appex" "${APP}/PlugIns/ByeTunnel.appex/ByeTunnel"
 chmod 644 "${PAYLOAD}/usr/lib/byebyedpi/cacert.pem" "${PAYLOAD}/usr/lib/byebyedpi/status.plist" "${PAYLOAD}/usr/share/doc/byebyedpi/"* \
@@ -168,7 +201,7 @@ chmod 755 "${STAGE}/DEBIAN/postinst" "${STAGE}/DEBIAN/postrm" "${STAGE}/DEBIAN/p
 
 echo "==> verify executable slices"
 for bin in "${PAYLOAD}/usr/bin/byedpid" "${PAYLOAD}/usr/bin/byebyectl" \
-           "${PAYLOAD}/usr/lib/byebyedpi/status.dylib" "${APP}/ByeByeDPI"; do
+           "${PAYLOAD}/usr/lib/byebyedpi/status.dylib" "${PAYLOAD}/usr/lib/byebyedpi/byebyetlsfix.dylib" "${APP}/ByeByeDPI"; do
   archs="$("${LIPO}" -archs "${bin}")"
   echo "${bin}: ${archs}"
   if [[ "${archs}" != "armv7 arm64" ]]; then

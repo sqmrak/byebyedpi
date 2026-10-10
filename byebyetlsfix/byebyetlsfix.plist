@@ -1,0 +1,10 @@
+{
+  Filter = {
+    Bundles = (
+      "com.apple.UIKit",
+      "com.apple.mobilesafari",
+      "com.apple.WebKit.Networking",
+      "com.apple.WebKit.WebContent"
+    );
+  };
+}

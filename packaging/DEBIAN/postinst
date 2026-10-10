@@ -92,6 +92,28 @@ install_status_hook() {
   chmod 644 "${HOOK_DIR}/byebyedpi-status.plist" 2>/dev/null || true
 }
 
+# ios 5 to 11 need the substrate shim to negotiate tls 1.3
+remove_byebyetlsfix() {
+  for dir in /Library/MobileSubstrate/DynamicLibraries /usr/lib/TweakInject; do
+    rm -f "${dir}/byebyetlsfix.dylib" "${dir}/byebyetlsfix.plist"
+  done
+}
+
+install_byebyetlsfix() {
+  [ -f "${PAYLOAD_ROOT}/usr/lib/byebyedpi/byebyetlsfix.dylib" ] || return 1
+  ln -sf "${PAYLOAD_ROOT}/usr/lib/byebyedpi/byebyetlsfix.dylib" "${HOOK_DIR}/byebyetlsfix.dylib" || return 1
+  cp "${PAYLOAD_ROOT}/usr/lib/byebyedpi/byebyetlsfix.plist" "${HOOK_DIR}/byebyetlsfix.plist" || return 1
+  chown root:wheel "${HOOK_DIR}/byebyetlsfix.plist" 2>/dev/null || true
+  chmod 644 "${HOOK_DIR}/byebyetlsfix.plist" 2>/dev/null || true
+  # the apps the shim serves are the user's to edit, so an upgrade keeps the file
+  BYETLSFIX_PREFS=/var/mobile/Library/Preferences/com.byebyedpi.byebyetlsfix.plist
+  if [ ! -s "$BYETLSFIX_PREFS" ]; then
+    cp "${PAYLOAD_ROOT}/usr/lib/byebyedpi/byebyetlsfix/prefs.plist" "$BYETLSFIX_PREFS" || return 1
+    chown mobile:mobile "$BYETLSFIX_PREFS" 2>/dev/null || true
+    chmod 644 "$BYETLSFIX_PREFS" 2>/dev/null || true
+  fi
+}
+
 # the launchctl of h3lix on ios 10 answers 0 to bootstrap and bootout without
 # doing either, so every step is judged by what launchd lists afterwards
 launchd_loaded() {
@@ -154,6 +176,11 @@ if [ -z "$JBROOT" ] && [ -n "$HOOK_DIR" ] && [ "$(firmware_major)" -lt 12 ] 2>/d
   else
     echo "byebyedpi: cannot install the vpn badge hook into ${HOOK_DIR}" >&2
   fi
+fi
+
+remove_byebyetlsfix
+if [ -z "$JBROOT" ] && [ -n "$HOOK_DIR" ] && [ "$(firmware_major)" -lt 12 ] 2>/dev/null; then
+  install_byebyetlsfix || echo "byebyedpi: cannot install byebyetlsfix into ${HOOK_DIR}" >&2
 fi
 
 # host lists named by "hosts = NAME" are read from here, as root
