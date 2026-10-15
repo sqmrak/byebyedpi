@@ -9,8 +9,10 @@
 
 const char BYE_DESYNC_DEFAULT_SPEC[] = "tlsrec=name+1;split=1,name+1";
 const char BYE_STRATEGIES_DEFAULT[] = "auto";
+/* the fake entry is for filters that drop a hello to some youtube addresses whatever the
+   cut: ios 6.1.3 on a real network passed them only with a low ttl fake before a split */
 const char BYE_STRATEGIES_AUTO_LIST[] =
-    "tlsrec=mid;split=1,mid|tlsrec=name+1;split=1,name+1|split=1,name+1;oob=1|none";
+    "tlsrec=mid;split=1,mid|tlsrec=name+1;split=1,name+1|-f-1 -t 8 -d1|split=1,name+1;oob=1|none";
 
 static void set_error(char *error, size_t cap, const char *text) {
     if (error && cap) snprintf(error, cap, "%s", text);
@@ -165,6 +167,10 @@ bye_desync_status_t bye_strategies_parse(const char *list, bye_strategies_t *out
                 set_error(error, error_cap, "too many strategies");
                 return BYE_DESYNC_ERR_SPEC;
             }
+            /* a line after another item is a step of the list: without a trigger of its own its
+               first group could only be reached as the first one, and a failure would skip it */
+            if (out->count > 0 && part.item[0].trigger == 0)
+                part.item[0].trigger = BYE_TRIGGER_TORST | BYE_TRIGGER_TLSERR;
             memcpy(&out->item[out->count], part.item, part.count * sizeof part.item[0]);
             out->count += part.count;
             if (part.timeout_ms) out->timeout_ms = part.timeout_ms;
@@ -446,6 +452,7 @@ static bye_desync_status_t build_cli(const bye_desync_t *desync, const uint8_t *
             if ((part->mode == BYE_PART_DISORDER || part->mode == BYE_PART_DISOOB) && k % 2 == 0)
                 flags |= BYE_OP_TTL1;
             if (part->mode == BYE_PART_OOB || part->mode == BYE_PART_DISOOB) flags |= BYE_OP_OOB;
+            if (part->mode == BYE_PART_FAKE) flags |= BYE_OP_FAKE;
             /* a cut that is empty sends nothing, except an urgent byte on its own */
             if (pos > lp || (flags & BYE_OP_OOB)) {
                 bye_op_t *op = &plan->ops[plan->count++];
@@ -468,6 +475,43 @@ static bye_desync_status_t build_cli(const bye_desync_t *desync, const uint8_t *
     plan->total = n;
     plan->applied = plan->count > 1 || changed;
     return BYE_DESYNC_OK;
+}
+
+int bye_strategies_use_fake(const bye_strategies_t *list) {
+    if (!list) return 0;
+    for (size_t i = 0; i < list->count && i < BYE_STRATEGIES_MAX; ++i) {
+        const bye_desync_t *group = &list->item[i];
+        if (!group->cli) continue;
+        for (size_t k = 0; k < group->part_count; ++k)
+            if (group->parts[k].mode == BYE_PART_FAKE) return 1;
+    }
+    return 0;
+}
+
+size_t bye_desync_fake(const bye_desync_t *group, int tls, const uint8_t *real, size_t real_len,
+                       size_t len, uint8_t *out, size_t out_cap) {
+    uint8_t blob[BYE_FAKE_BLOB_MAX];
+    size_t blob_len;
+    if (!group || !out || len == 0) return 0;
+    if (group->fake_data_len) {
+        blob_len = group->fake_data_len;
+        memcpy(blob, group->fake_data, blob_len);
+    } else if (tls) {
+        blob_len = bye_fake_tls(blob, sizeof blob, group->fake_sni, group->fake_mods, real,
+                                real_len, seed_from(real, real_len));
+    } else {
+        blob_len = bye_fake_http(blob, sizeof blob, group->fake_sni);
+    }
+    if (blob_len == 0) return 0;
+    int64_t start = group->fake_offset;
+    if (start < 0) start += (int64_t)blob_len;
+    if (start < 0 || start >= (int64_t)blob_len) return 0;
+    size_t n = blob_len - (size_t)start;
+    if (n > len) n = len;
+    if (n > BYE_FAKE_PAYLOAD_MAX) n = BYE_FAKE_PAYLOAD_MAX;
+    if (n > out_cap) return 0;
+    memcpy(out, blob + start, n);
+    return n;
 }
 
 bye_desync_status_t bye_desync_build(const bye_desync_t *desync, const uint8_t *in,

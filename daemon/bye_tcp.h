@@ -46,6 +46,17 @@ extern "C" {
 typedef bye_path_t (*bye_tcp_classify_fn)(void *ctx, const uint8_t *addr, size_t addr_len,
                                           uint16_t port);
 
+/* sends one fake packet for the direct connection on fd: `offset` bytes of the
+   connection's stream are already out, so the packet takes the next sequence
+   number and the real bytes follow with the same one. 0 when it left,
+   BYE_FAKE_SEND_* when it did not */
+#define BYE_FAKE_SEND_OK         0
+#define BYE_FAKE_SEND_OFF       -1 /* no watcher, or the connection is not ipv4 */
+#define BYE_FAKE_SEND_UNKNOWN   -2 /* its syn and syn-ack were not seen */
+#define BYE_FAKE_SEND_FAILED    -3 /* the raw socket refused the packet, errno says why */
+typedef int (*bye_fake_send_fn)(void *ctx, int fd, uint32_t offset, const uint8_t *payload,
+                                size_t len, uint8_t ttl, int md5sig);
+
 typedef struct {
     bye_route_policy_t policy;
     bye_tcp_classify_fn classify;
@@ -75,6 +86,8 @@ typedef struct {
     direct_socket_fn   direct_socket;
     void              *direct_ctx;
     bye_wsconn_ctx_t  *tls;        /* borrowed; NULL turns the telegram path off */
+    bye_fake_send_fn   fake_send;  /* NULL leaves a fake part as a plain cut */
+    void              *fake_ctx;
     uint8_t            dns[4];     /* tcp 53 goes here when dns_set */
     int                dns_set;
     size_t             max_flows;  /* 0 uses BYE_TCP_MAX_FLOWS */
@@ -93,6 +106,8 @@ typedef struct {
     uint64_t direct;
     uint64_t desync_applied;
     uint64_t desync_passed;  /* the first payload had no name, or never completed */
+    uint64_t fake_sent;      /* fake packets that left */
+    uint64_t fake_missed;    /* a fake part went out as a plain cut: no watcher, no syn seen, or a refusal */
     uint64_t hosts_skipped;  /* the host list kept a flow from being cut */
     uint64_t auto_retried;   /* a tls flow got no answer and moved to the next strategy */
     uint64_t auto_learned;   /* a strategy other than the first answered and was remembered */

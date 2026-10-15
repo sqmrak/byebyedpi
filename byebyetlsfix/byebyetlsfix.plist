@@ -2,9 +2,11 @@
   Filter = {
     Bundles = (
       "com.apple.UIKit",
+      "com.apple.CFNetwork",
       "com.apple.mobilesafari",
       "com.apple.WebKit.Networking",
       "com.apple.WebKit.WebContent"
     );
+    Mode = "Any";
   };
 }

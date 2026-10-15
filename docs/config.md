@@ -10,14 +10,16 @@
 | `telegram` | `on`, `off` | `on` |
 | `telegram.pool` | `0` to `2` | `1` |
 | `quic` | `block`, `pass` | `block` |
-| `dns` | ipv4 address, `system` | `1.1.1.1` |
+| `dns` | ipv4 address, `system` | `system` |
 | `relay` | up to 4 domains, `none` | `pclead.co.uk,lovetrue.co.uk,kartoshka.co.uk` |
 | `autostart` | `on`, `off` | `off` |
 | `proxy` | `on`, `off` | `off` |
 | `proxy.port` | `1` to `65535` | `1082` |
 | `proxy.secret` | 32 lowercase hex digits, `auto` | `auto` |
 
-configs below version 4 change `dns = system` to `dns = 1.1.1.1` once. custom addresses are kept. selecting `system` after the upgrade keeps the network resolver.
+a config below version 6 is replaced by the defaults once, on the first start after an upgrade. the app drops its saved list choices the same way.
+
+an address of your own is asked over tcp. some networks answer udp lookups for youtube with a forged nxdomain, even from 1.1.1.1 or 8.8.8.8.
 
 ## control
 
@@ -58,10 +60,16 @@ the text can contain up to 1023 bytes. the app accepts it on the strategy screen
 - other supported options: `-r`, `-M`, `-m`, `-e`, `-K t,h`, `-T`, `-g`
 - `-d`: sends a segment with ttl 1 so the kernel retransmits it later
 - `-o -q`: send an urgent byte in the same segment
+- `-f`: sends a fake packet as long as the part, then the part itself. the fake is a raw ipv4 packet with the sequence numbers of the real bytes, so it needs a jailbreak with bpf. ipv6 flows and a connection whose syn was not seen get a plain cut, counted in `tcp.fake_missed`
+- `-t N`: ttl of the fake, `8` by default
+- `-n NAME`: server name of the fake, `www.iana.org` for tls and `www.w3.org` for http. `{sni}` keeps the default
+- `-Q r,o,m,d`: `r` new random, session id and key, `o` the app's own hello with the name replaced, `m` the length of the app's hello, `d` the app's session id
+- `-O N`: the fake is taken from byte N of its data, a negative N counts from the end
+- `-l NAME`: data of the fake, a file in the host list directory. a missing or large file (over 1500 bytes) prevents the tunnel from starting
+- `-S`: the fake carries a tcp md5 option, which no server accepts without a key
 - `-A t,s`: retry after no answer, a reset, or a response that is not a tls handshake
 - `-A c` and `-A r`: accepted, but do not trigger a retry
-- `-f`: splits like `-s`, without a fake packet
-- omitted options: `-S -Y -a -t -n -l -O -Q -H -j -V -R -L -u -B -y`, and proxy options
+- omitted options: `-Y -a -H -j -V -R -L -u -B -y`, and proxy options
 
 omitted options are reported in the app and `/var/log/byebyedpi-system.log`. an invalid option rejects the setting.
 

@@ -282,6 +282,7 @@ static BOOL ApplyStatus(BOOL enabled) {
 
 @interface ByeStatusBridge : NSObject
 + (void)markReady;
++ (void)poll;
 + (void)applyLater;
 + (void)applyNow;
 @end
@@ -292,6 +293,15 @@ static BOOL ApplyStatus(BOOL enabled) {
     if (gReady) return;
     gReady = YES;
     [self applyLater];
+    /* the daemon's darwin notification does not reach springboard on ios 9, though the
+       same post from a shell does, so a badge left on after the tunnel stopped stayed
+       there. the state file is the source of truth and a read of it every second is cheap */
+    [NSTimer scheduledTimerWithTimeInterval:1.0 target:self selector:@selector(poll) userInfo:nil repeats:YES];
+}
+
++ (void)poll {
+    char ifname[16];
+    if (gDidApply && ReadState(ifname, sizeof ifname) != gLastState) [self applyLater];
 }
 
 + (void)applyLater {

@@ -50,7 +50,7 @@ grep -q '^desync.spec = split=2,mid$' "${cfg}" || fail "the file lost the spec"
 
 ctl set desync.spec '-d1 -s5+s -r1+s -S -a1 -As -d2' | grep -q '^OK' || fail "set ciadpi options"
 grep -q '^desync.spec = -d1 -s5+s -r1+s -S -a1 -As -d2$' "${cfg}" || fail "the file lost the ciadpi options"
-grep -q 'desync.spec: -S -Y: they need linux sockets' "${work}/log" || fail "the left out options are not logged: $(cat "${work}/log")"
+grep -q 'desync.spec: -a: fake udp packets are not sent' "${work}/log" || fail "the left out options are not logged: $(cat "${work}/log")"
 if ctl set desync.spec '-d1 -s' >"${work}/out" 2>&1; then fail "options with no value were accepted"; fi
 grep -q 'option -s needs a value' "${work}/out" || fail "the option's reason: $(cat "${work}/out")"
 grep -q '^desync.spec = -d1 -s5+s -r1+s -S -a1 -As -d2$' "${cfg}" || fail "a bad option line replaced the old one"

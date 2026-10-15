@@ -1,16 +1,15 @@
 #define _DEFAULT_SOURCE
 
 #include "stl_log.h"
+#include "../daemon/bye_paths.h"
 
 #include <stdarg.h>
 #include <stdio.h>
 #include <time.h>
 #include <unistd.h>
 
-#define stl_log_path "/var/log/byebyetlsfix.log"
-
 void stl_log(const char *fmt, ...) {
-    FILE *f = fopen(stl_log_path, "a");
+    FILE *f = fopen(BYE_TLS_LOG, "a");
     if (!f) return;
 
     time_t now = time(NULL);

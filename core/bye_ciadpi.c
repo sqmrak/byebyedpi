@@ -69,8 +69,8 @@ static void note(state_t *st, uint32_t reason, const char *text) {
 }
 
 enum {
-    NOTE_PROXY, NOTE_FAKE, NOTE_UDP, NOTE_LINUX, NOTE_FILTER, NOTE_ROUND, NOTE_TIMEOUT,
-    NOTE_CONNECT, NOTE_CACHE, NOTE_FAKE_CUT
+    NOTE_PROXY, NOTE_UDP, NOTE_LINUX, NOTE_FILTER, NOTE_ROUND, NOTE_TIMEOUT,
+    NOTE_CONNECT, NOTE_CACHE
 };
 
 static int parse_long(const char *text, long *value, const char **end) {
@@ -146,6 +146,25 @@ static int take_http(void *ctx, char c) {
     uint32_t *mods = ctx;
     *mods |= c == 'r' ? BYE_HTTP_SPACE : c == 'h' ? BYE_HTTP_HMIX : BYE_HTTP_DMIX;
     return 0;
+}
+
+static int take_fake_mod(void *ctx, char c) {
+    uint32_t *mods = ctx;
+    *mods |= c == 'r' ? BYE_FAKE_MOD_RAND : c == 'o' ? BYE_FAKE_MOD_ORIG
+           : c == 'm' ? BYE_FAKE_MOD_MIMIC : BYE_FAKE_MOD_DUPSID;
+    return 0;
+}
+
+/* -l names a file in the daemon's list directory, so no path is taken from the options */
+static int plain_file_name(const char *name) {
+    size_t len = strlen(name);
+    if (len == 0 || name[0] == '.') return 0;
+    for (size_t i = 0; i < len; ++i) {
+        char c = name[i];
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+              c == '.' || c == '_' || c == '-')) return 0;
+    }
+    return 1;
 }
 
 static int take_trigger(void *ctx, char c) {
@@ -225,9 +244,7 @@ static bye_desync_status_t apply(state_t *st, bye_desync_t *group, char key, con
         memset(part, 0, sizeof *part);
         if (parse_offset(arg, &part->pos)) break;
         part->mode = key == 'd' ? BYE_PART_DISORDER : key == 'o' ? BYE_PART_OOB
-                   : key == 'q' ? BYE_PART_DISOOB : BYE_PART_SPLIT;
-        if (key == 'f')
-            note(st, NOTE_FAKE_CUT, "-f: the fake packet is not sent, the cut is made without it");
+                   : key == 'q' ? BYE_PART_DISOOB : key == 'f' ? BYE_PART_FAKE : BYE_PART_SPLIT;
         ++group->part_count;
         return BYE_DESYNC_OK;
     }
@@ -281,11 +298,28 @@ static bye_desync_status_t apply(state_t *st, bye_desync_t *group, char key, con
         return BYE_DESYNC_OK;
     case 't':
         if (parse_number(arg, 1, 255, &v)) break;
-        note(st, NOTE_FAKE, "-t -n -l -O -Q: they set fake packets, which are not sent");
+        group->fake_ttl = (uint8_t)v;
         return BYE_DESYNC_OK;
-    case 'n': case 'l': case 'O': case 'Q':
-        note(st, NOTE_FAKE, "-t -n -l -O -Q: they set fake packets, which are not sent");
+    case 'n':
+        /* the apps of the original project write {sni} where the program picks the name */
+        if (strlen(arg) >= sizeof group->fake_sni || arg[0] == '\0') break;
+        if (strcmp(arg, "{sni}") == 0) group->fake_sni[0] = '\0';
+        else snprintf(group->fake_sni, sizeof group->fake_sni, "%s", arg);
         return BYE_DESYNC_OK;
+    case 'l':
+        if (!plain_file_name(arg) || strlen(arg) >= sizeof group->fake_file) break;
+        snprintf(group->fake_file, sizeof group->fake_file, "%s", arg);
+        return BYE_DESYNC_OK;
+    case 'O':
+        if (parse_number(arg, -BYE_FAKE_DATA_MAX, BYE_FAKE_DATA_MAX, &v)) break;
+        group->fake_offset = (int32_t)v;
+        return BYE_DESYNC_OK;
+    case 'Q': {
+        uint32_t mods = 0;
+        if (each_letter(arg, "romd", take_fake_mod, &mods)) break;
+        group->fake_mods |= mods;
+        return BYE_DESYNC_OK;
+    }
     case 'R':
         note(st, NOTE_ROUND, "-R: only the first send of a connection is cut");
         return BYE_DESYNC_OK;
@@ -303,10 +337,13 @@ static bye_desync_status_t apply(state_t *st, bye_desync_t *group, char key, con
     return fail(st, "option %s: bad value \"%s\"", flag, shown);
 }
 
-static bye_desync_status_t apply_flag(state_t *st, char key) {
+static bye_desync_status_t apply_flag(state_t *st, bye_desync_t *group, char key) {
     switch (key) {
-    case 'S': case 'Y':
-        note(st, NOTE_LINUX, "-S -Y: they need linux sockets, which this system has not");
+    case 'S':
+        group->md5sig = 1;
+        return BYE_DESYNC_OK;
+    case 'Y':
+        note(st, NOTE_LINUX, "-Y: it needs a linux socket filter, which this system has not");
         return BYE_DESYNC_OK;
     case 'Z':
         return BYE_DESYNC_OK;
@@ -412,7 +449,7 @@ bye_desync_status_t bye_ciadpi_parse(const char *text, bye_strategies_t *out, ch
                     return fail(&st, "unknown option %s%s", shown_key, "");
                 }
                 if (!takes) {
-                    bye_desync_status_t flag_status = apply_flag(&st, *c);
+                    bye_desync_status_t flag_status = apply_flag(&st, group, *c);
                     if (flag_status != BYE_DESYNC_OK) return flag_status;
                     continue;
                 }
@@ -429,7 +466,7 @@ bye_desync_status_t bye_ciadpi_parse(const char *text, bye_strategies_t *out, ch
             if (!has_arg) continue;
         }
         if (!has_arg) {
-            bye_desync_status_t flag_status = apply_flag(&st, key);
+            bye_desync_status_t flag_status = apply_flag(&st, group, key);
             if (flag_status != BYE_DESYNC_OK) return flag_status;
             continue;
         }

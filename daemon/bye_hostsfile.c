@@ -26,70 +26,92 @@ static int name_is_plain(const char *name) {
     return 1;
 }
 
-bye_hosts_t *bye_hostsfile_load(const char *dir, const char *name, char *reason, size_t cap) {
-    if (reason && cap) reason[0] = '\0';
-    if (!dir || !name || !reason || !cap) return NULL;
+/* reads dir/name into buf, which holds max + 1 bytes: the whole file or nothing.
+   `what` names the file kind in the reason */
+static int read_plain_file(const char *dir, const char *name, const char *what, size_t max,
+                           uint8_t *buf, size_t *len_out, char *reason, size_t cap) {
+    *len_out = 0;
     /* the config checks this too; a caller that skipped it must not reach another file */
     if (!name_is_plain(name)) {
-        snprintf(reason, cap, "the hosts list name is not a plain file name");
-        return NULL;
+        snprintf(reason, cap, "the %s name is not a plain file name", what);
+        return -1;
     }
     char path[512];
     if (snprintf(path, sizeof path, "%s/%s", dir, name) >= (int)sizeof path) {
-        snprintf(reason, cap, "the hosts list path is too long");
-        return NULL;
+        snprintf(reason, cap, "the %s path is too long", what);
+        return -1;
     }
     /* O_NONBLOCK so that a pipe in its place cannot hold the daemon in open */
     int fd = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
     if (fd < 0) {
-        snprintf(reason, cap, "cannot read the hosts list %.60s (errno %d %s)", name, errno,
+        snprintf(reason, cap, "cannot read the %s %.60s (errno %d %s)", what, name, errno,
                  strerror(errno));
-        return NULL;
+        return -1;
     }
     struct stat st;
     if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode)) {
         close(fd);
-        snprintf(reason, cap, "the hosts list %.60s is not a plain file", name);
-        return NULL;
+        snprintf(reason, cap, "the %s %.60s is not a plain file", what, name);
+        return -1;
     }
-    if (st.st_size > (off_t)BYE_HOSTS_FILE_MAX) {
+    if (st.st_size > (off_t)max) {
         close(fd);
-        snprintf(reason, cap, "the hosts list %.60s is larger than %u bytes", name,
-                 (unsigned)BYE_HOSTS_FILE_MAX);
-        return NULL;
-    }
-    char *text = malloc((size_t)BYE_HOSTS_FILE_MAX + 1);
-    if (!text) {
-        close(fd);
-        snprintf(reason, cap, "not enough memory for the hosts list");
-        return NULL;
+        snprintf(reason, cap, "the %s %.60s is larger than %u bytes", what, name, (unsigned)max);
+        return -1;
     }
     size_t len = 0;
-    int failed = 0;
     for (;;) {
-        ssize_t got = read(fd, text + len, (size_t)BYE_HOSTS_FILE_MAX + 1 - len);
+        ssize_t got = read(fd, buf + len, max + 1 - len);
         if (got < 0 && errno == EINTR) continue;
         if (got < 0) {
-            failed = 1;
-            break;
+            close(fd);
+            snprintf(reason, cap, "cannot read the %s %.60s", what, name);
+            return -1;
         }
         if (got == 0) break;
         len += (size_t)got;
-        if (len > BYE_HOSTS_FILE_MAX) break;
+        if (len > max) break;
     }
     close(fd);
-    bye_hosts_t *hosts = NULL;
-    if (failed) {
-        snprintf(reason, cap, "cannot read the hosts list %.60s", name);
-    } else if (len > BYE_HOSTS_FILE_MAX) {
+    if (len > max) {
         /* the file grew while it was read */
-        snprintf(reason, cap, "the hosts list %.60s is larger than %u bytes", name,
-                 (unsigned)BYE_HOSTS_FILE_MAX);
-    } else {
+        snprintf(reason, cap, "the %s %.60s is larger than %u bytes", what, name, (unsigned)max);
+        return -1;
+    }
+    *len_out = len;
+    return 0;
+}
+
+bye_hosts_t *bye_hostsfile_load(const char *dir, const char *name, char *reason, size_t cap) {
+    if (reason && cap) reason[0] = '\0';
+    if (!dir || !name || !reason || !cap) return NULL;
+    char *text = malloc((size_t)BYE_HOSTS_FILE_MAX + 1);
+    if (!text) {
+        snprintf(reason, cap, "not enough memory for the hosts list");
+        return NULL;
+    }
+    size_t len;
+    bye_hosts_t *hosts = NULL;
+    if (read_plain_file(dir, name, "hosts list", BYE_HOSTS_FILE_MAX, (uint8_t *)text, &len, reason, cap) == 0) {
         char detail[BYE_HOSTS_ERROR_MAX];
         hosts = bye_hosts_parse(text, len, detail, sizeof detail);
         if (!hosts) snprintf(reason, cap, "hosts list %.60s, %s", name, detail);
     }
     free(text);
     return hosts;
+}
+
+int bye_hostsfile_read(const char *dir, const char *name, const char *what, uint8_t *out,
+                       size_t out_cap, size_t *len, char *reason, size_t cap) {
+    if (reason && cap) reason[0] = '\0';
+    if (!dir || !name || !what || !out || !len || !reason || !cap || out_cap < 2) return -1;
+    uint8_t *buf = malloc(out_cap + 1);
+    if (!buf) {
+        snprintf(reason, cap, "not enough memory for the %s", what);
+        return -1;
+    }
+    int status = read_plain_file(dir, name, what, out_cap, buf, len, reason, cap);
+    if (status == 0) memcpy(out, buf, *len);
+    free(buf);
+    return status;
 }

@@ -24,13 +24,13 @@ CFLAGS  := -std=c99 -Wall -Wextra -O2 $(EXTRA_CFLAGS) $(ARCH) -isysroot $(SDK) \
 LIBS    := $(OSSL)/lib/libssl.a $(OSSL)/lib/libcrypto.a
 LDFLAGS := $(ARCH) -isysroot $(SDK) -Wl,-dead_strip $(if $(CRT),-nostartfiles $(CRT),)
 
-CORE_SRC = ../core/bye_sniff.c ../core/bye_desync.c ../core/bye_ciadpi.c ../core/bye_mtp.c ../core/bye_ws.c \
+CORE_SRC = ../core/bye_sniff.c ../core/bye_desync.c ../core/bye_fake.c ../core/bye_ciadpi.c ../core/bye_mtp.c ../core/bye_ws.c \
            ../core/bye_tg.c ../core/bye_route.c ../core/bye_config.c ../core/bye_status.c ../core/bye_hosts.c
 TUN_SRC  = tun/utun_device.c tun/utun_route.c tun/route_socket.c tun/tun_stack.c \
            tun/tun_loop.c tun/direct_socket.c tun/legacy_ios.c tun/utun_dns.c tun/proc_detach.c \
            tun/core/route_message.c tun/core/tun_plan.c tun/core/tun_nat.c \
            tun/core/utun_frame.c tun/core/senko_time.c
-DAEMON_SRC = main.c bye_altaddr.c bye_backend.c bye_badge.c bye_hostsfile.c bye_ctl.c bye_iface.c bye_probe.c bye_resolver.c bye_tcp.c bye_tgproxy.c bye_udp.c bye_wsconn.c
+DAEMON_SRC = main.c bye_altaddr.c bye_backend.c bye_fakesend.c bye_badge.c bye_hostsfile.c bye_ctl.c bye_iface.c bye_probe.c bye_resolver.c bye_tcp.c bye_tgproxy.c bye_tls_owner.c bye_udp.c bye_wsconn.c
 LWIP_DIR = tun/third_party/lwip/src
 LWIP_SRC = $(wildcard $(LWIP_DIR)/core/*.c) $(wildcard $(LWIP_DIR)/core/ipv4/*.c) \
            $(wildcard $(LWIP_DIR)/core/ipv6/*.c) tun/lwip_port/lwip_sys.c

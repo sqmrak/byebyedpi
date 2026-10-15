@@ -11,9 +11,9 @@ static bye_config_status_t parse(const char *text, bye_config_t *c, char *error,
 static void test_defaults(void) {
     bye_config_t c;
     bye_config_defaults(&c);
-    CHECK(c.telegram && c.block_quic && !strcmp(c.dns, "1.1.1.1") && !c.autostart);
+    CHECK(c.telegram && c.block_quic && !c.dns[0] && !c.autostart);
     CHECK(strcmp(c.desync_spec, BYE_STRATEGIES_DEFAULT) == 0);
-    CHECK(strcmp(c.desync_spec, "auto") == 0 && c.desync_strategies.count == 4);
+    CHECK(strcmp(c.desync_spec, "auto") == 0 && c.desync_strategies.count == 5);
     CHECK(c.desync_strategies.item[0].split_count == 2 && c.desync_strategies.item[0].has_tlsrec);
     CHECK(c.hosts[0] == '\0' && c.hosts_only && c.pool == 1);
     CHECK(strcmp(c.relay, BYE_CONFIG_RELAY_DEFAULT) == 0 && c.version == BYE_CONFIG_VERSION);
@@ -180,13 +180,13 @@ static void test_render(void) {
     CHECK(parse(text, &back, error, sizeof error) == BYE_CONFIG_OK);
     CHECK(back.telegram == 0 && back.block_quic == 0 && back.autostart);
     CHECK(strcmp(back.hosts, "blocked.txt") == 0 && !back.hosts_only && back.pool == 2);
-    CHECK(back.desync_strategies.count == 4 && strcmp(back.desync_spec, "auto") == 0);
+    CHECK(back.desync_strategies.count == 5 && strcmp(back.desync_spec, "auto") == 0);
     CHECK(back.proxy && back.proxy_port == 2080 && strcmp(back.proxy_secret, c.proxy_secret) == 0);
     CHECK(strcmp(back.relay, "relay.example.org") == 0);
     CHECK(strcmp(back.dns, "8.8.4.4") == 0 && strcmp(back.desync_spec, c.desync_spec) == 0);
     CHECK(bye_config_render(&c, text, 10) == -1);
     CHECK(bye_config_render(&c, text, sizeof text) == 0);
-    CHECK(strncmp(text, "version = 4\n", 12) == 0);
+    CHECK(strncmp(text, "version = 6\n", 12) == 0);
 
     /* the version is read back, so the daemon can tell an old file from a chosen none */
     bye_config_defaults(&back);
@@ -195,8 +195,9 @@ static void test_render(void) {
     CHECK(back.version == 1 && back.relay[0] == '\0');
     CHECK(parse("version = 3\n", &back, error, sizeof error) == BYE_CONFIG_OK && back.version == 3);
     CHECK(parse("version = 4\n", &back, error, sizeof error) == BYE_CONFIG_OK && back.version == 4);
-    CHECK(parse("version = 5\n", &back, error, sizeof error) == BYE_CONFIG_ERR_PARSE);
-    CHECK(strcmp(error, "line 1: version is 1 to 4") == 0);
+    CHECK(parse("version = 5\n", &back, error, sizeof error) == BYE_CONFIG_OK && back.version == 5);
+    CHECK(parse("version = 7\n", &back, error, sizeof error) == BYE_CONFIG_ERR_PARSE);
+    CHECK(strcmp(error, "line 1: version is 1 to 6") == 0);
 
     /* a command line goes through the file as it is */
     snprintf(c.desync_spec, sizeof c.desync_spec, "-d1 -d3+s -r1+s -As -s2");
@@ -207,48 +208,40 @@ static void test_render(void) {
 }
 
 static void test_migration(void) {
-    static const struct {
-        const char *text;
-        const char *dns;
-        int changed;
-    } cases[] = {
-        { "", "1.1.1.1", 1 },
-        { "version = 1\ndns = system\n", "1.1.1.1", 1 },
-        { "version = 2\ndns = system\n", "1.1.1.1", 1 },
-        { "version = 3\ndns = system\n", "1.1.1.1", 1 },
-        { "version = 3\ndns = 8.8.8.8\n", "8.8.8.8", 1 },
-        { "version = 4\ndns = system\n", "", 0 },
-        { "version = 4\ndns = 8.8.4.4\n", "8.8.4.4", 0 }
+    static const char *const old[] = {
+        "",
+        "version = 1\ndns = system\n",
+        "version = 3\ndns = 1.1.1.1\n",
+        "version = 4\ndns = 8.8.4.4\n",
+        "version = 5\ndns = 8.8.4.4\n"
     };
-    for (size_t i = 0; i < sizeof cases / sizeof cases[0]; ++i) {
-        bye_config_t c, back;
+    for (size_t i = 0; i < sizeof old / sizeof old[0]; ++i) {
+        bye_config_t c, fresh, back;
         char text[BYE_CONFIG_FILE_MAX], error[BYE_CONFIG_ERROR_MAX];
+        bye_config_defaults(&fresh);
         bye_config_defaults(&c);
         c.version = 1;
-        CHECK(parse(cases[i].text, &c, error, sizeof error) == BYE_CONFIG_OK);
-        CHECK(parse("hosts = blocked.txt\nautostart = on\nproxy.port = 2080\n",
+        CHECK(parse(old[i], &c, error, sizeof error) == BYE_CONFIG_OK);
+        CHECK(parse("hosts = youtube.sites\nhosts.mode = only\nautostart = on\nproxy.port = 2080\n"
+                    "relay = none\ntelegram = off\nquic = pass\ndesync.spec = split=1,mid\n",
                     &c, error, sizeof error) == BYE_CONFIG_OK);
-        CHECK(bye_config_migrate(&c) == cases[i].changed);
-        CHECK(!strcmp(c.dns, cases[i].dns) && c.version == BYE_CONFIG_VERSION);
-        CHECK(!strcmp(c.hosts, "blocked.txt") && c.autostart && c.proxy_port == 2080);
+        CHECK(bye_config_migrate(&c) == 1);
+        CHECK(c.version == BYE_CONFIG_VERSION);
+        CHECK(!c.hosts[0] && !c.autostart && c.proxy_port == fresh.proxy_port);
+        CHECK(!strcmp(c.relay, BYE_CONFIG_RELAY_DEFAULT) && c.telegram == fresh.telegram);
+        CHECK(c.block_quic == fresh.block_quic && !c.dns[0]);
+        CHECK(!strcmp(c.desync_spec, fresh.desync_spec) && c.desync_strategies.count == fresh.desync_strategies.count);
         CHECK(bye_config_migrate(&c) == 0);
         CHECK(bye_config_render(&c, text, sizeof text) == 0);
         bye_config_defaults(&back);
         CHECK(parse(text, &back, error, sizeof error) == BYE_CONFIG_OK);
-        CHECK(bye_config_migrate(&back) == 0 && !strcmp(back.dns, cases[i].dns));
+        CHECK(bye_config_migrate(&back) == 0 && !back.hosts[0]);
     }
-    bye_config_t c;
+    bye_config_t current;
     char error[BYE_CONFIG_ERROR_MAX];
-    bye_config_defaults(&c);
-    CHECK(parse("version = 3\ndesync.spec = tlsrec=mid;split=1,mid\nrelay = none\ndns = system\n",
-                &c, error, sizeof error) == BYE_CONFIG_OK);
-    CHECK(bye_config_migrate(&c) == 1);
-    CHECK(!strcmp(c.desync_spec, BYE_CONFIG_SPEC_V2_DEFAULT) && !c.relay[0]);
-    CHECK(c.desync_strategies.count == 1 && c.desync_strategies.item[0].has_tlsrec);
-    CHECK(parse("version = 2\n", &c, error, sizeof error) == BYE_CONFIG_OK);
-    CHECK(bye_config_migrate(&c) == 1 && !strcmp(c.desync_spec, "auto") && !c.relay[0]);
-    CHECK(parse("version = 1\nrelay = none\n", &c, error, sizeof error) == BYE_CONFIG_OK);
-    CHECK(bye_config_migrate(&c) == 1 && !strcmp(c.relay, BYE_CONFIG_RELAY_DEFAULT));
+    bye_config_defaults(&current);
+    CHECK(parse("hosts = youtube.sites\nautostart = on\n", &current, error, sizeof error) == BYE_CONFIG_OK);
+    CHECK(bye_config_migrate(&current) == 0 && !strcmp(current.hosts, "youtube.sites") && current.autostart);
     CHECK(bye_config_migrate(NULL) == 0);
 }
 

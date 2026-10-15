@@ -412,16 +412,42 @@ static int ttl_set(int fd, int family, int value) {
     return setsockopt(fd, level, name, &value, sizeof value);
 }
 
+/* a fake that cannot leave is no reason to drop the flow: its part still goes
+   out as a plain cut, and the counters and the trace say it happened */
+static void send_fake(bye_tcp_t *tcp, relay_t *relay, const bye_desync_t *group,
+                      const bye_plan_t *plan, const bye_op_t *op, uint32_t wire) {
+    uint8_t payload[BYE_FAKE_PAYLOAD_MAX];
+    int tls = plan->has_name ? plan->tls : (plan->total > 0 && tcp->scratch[0] == 0x16);
+    size_t n = bye_desync_fake(group, tls, tcp->scratch, plan->total, op->len, payload, sizeof payload);
+    int status = BYE_FAKE_SEND_OFF;
+    if (n && tcp->config.fake_send)
+        status = tcp->config.fake_send(tcp->config.fake_ctx, relay->fd, wire, payload, n,
+                                       group->fake_ttl ? group->fake_ttl : BYE_FAKE_TTL_DEFAULT,
+                                       group->md5sig);
+    if (status == BYE_FAKE_SEND_OK) {
+        ++tcp->stats.fake_sent;
+        return;
+    }
+    ++tcp->stats.fake_missed;
+    trace(tcp, relay, status == BYE_FAKE_SEND_UNKNOWN ? "fake not sent, the syn of this connection was not seen"
+                    : status == BYE_FAKE_SEND_FAILED ? "fake not sent, the raw socket refused it"
+                    : "fake not sent, there is no watcher or no fake bytes", NULL);
+}
+
 /* ttl 1 forces retransmission after later segments; restore it before sending those segments
    partial writes remain in pending; -1 means the flow was closed */
-static int send_plan(bye_tcp_t *tcp, relay_t *relay, const bye_plan_t *plan) {
+static int send_plan(bye_tcp_t *tcp, relay_t *relay, const bye_desync_t *group, const bye_plan_t *plan) {
     int family = relay->dest_len == 4 ? AF_INET : AF_INET6;
+    /* bytes the socket has taken, urgent ones included: the next fake takes the
+       sequence number that follows them */
+    uint32_t wire = 0;
     for (size_t i = 0; i < plan->count; ++i) {
         const bye_op_t *op = &plan->ops[i];
         uint8_t *seg = tcp->scratch + op->off;
         size_t len = op->len, done = 0;
         int failed = 0;
         int restore = 0;
+        if (op->flags & BYE_OP_FAKE) send_fake(tcp, relay, group, plan, op, wire);
         if (op->flags & BYE_OP_TTL1) {
             restore = tcp->config.strategies.def_ttl ? tcp->config.strategies.def_ttl
                                                      : ttl_get(relay->fd, family);
@@ -439,6 +465,7 @@ static int send_plan(bye_tcp_t *tcp, relay_t *relay, const bye_plan_t *plan) {
             do sent = send(relay->fd, seg, len + 1, MSG_OOB);
             while (sent < 0 && errno == EINTR);
             seg[len] = kept;
+            if (sent > 0) wire += (uint32_t)sent;
             if (sent < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) sent = 0;
             if (sent < 0) failed = errno;
             else done = (size_t)sent > len ? len : (size_t)sent;
@@ -452,6 +479,7 @@ static int send_plan(bye_tcp_t *tcp, relay_t *relay, const bye_plan_t *plan) {
                     break;
                 }
                 done += (size_t)sent;
+                wire += (uint32_t)sent;
             }
         }
         if (restore) {
@@ -470,6 +498,7 @@ static int send_plan(bye_tcp_t *tcp, relay_t *relay, const bye_plan_t *plan) {
             static const uint8_t byte = BYE_DESYNC_OOB_BYTE;
             ssize_t sent = send(relay->fd, &byte, 1, MSG_OOB);
             /* the urgent byte is only a decoy: a full socket may skip it */
+            if (sent > 0) wire += (uint32_t)sent;
             if (sent < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != ENOBUFS &&
                 errno != EINTR) {
                 abort_errno(tcp, relay, "the destination refused the urgent byte", errno);
@@ -865,7 +894,7 @@ static int first_payload(bye_tcp_t *tcp, relay_t *relay) {
     } else {
         replay_drop(relay);
     }
-    return send_plan(tcp, relay, &plan) != 0 ? -1 : 0;
+    return send_plan(tcp, relay, strategy_at(tcp, relay->strategy), &plan) != 0 ? -1 : 0;
 }
 
 static int app_to_server(bye_tcp_t *tcp, relay_t *relay) {

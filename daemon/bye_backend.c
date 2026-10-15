@@ -3,6 +3,7 @@
 #include "bye_backend.h"
 
 #include "bye_badge.h"
+#include "bye_fakesend.h"
 #include "bye_hostsfile.h"
 #include "bye_paths.h"
 #include "bye_resolver.h"
@@ -531,6 +532,8 @@ void bye_backend_stop(bye_backend_t *backend) {
     backend->udp = NULL;
     bye_wsconn_ctx_free(backend->tls);
     backend->tls = NULL;
+    bye_fakesend_stop(backend->fake);
+    backend->fake = NULL;
     bye_hosts_free(backend->hosts);
     backend->hosts = NULL;
     backend->ready = 0;
@@ -738,6 +741,33 @@ int bye_backend_start(bye_backend_t *backend, const bye_backend_options_t *optio
     tcp.policy.telegram = config->telegram && backend->tls != NULL;
     tcp.ws_addresses = ws_addresses;
     tcp.strategies = config->desync_strategies;
+    if (bye_strategies_use_fake(&tcp.strategies)) {
+        const char *dir = options->hosts_dir ? options->hosts_dir : BYE_HOSTS_DIR;
+        char fake_reason[160];
+        /* the files are read before the tunnel starts, as a host list is: a name that
+           does not open is a setting to fix, not a flow to lose later */
+        for (size_t i = 0; i < tcp.strategies.count; ++i) {
+            bye_desync_t *group = &tcp.strategies.item[i];
+            if (!group->fake_file[0]) continue;
+            if (bye_hostsfile_read(dir, group->fake_file, "fake data file", group->fake_data,
+                                   sizeof group->fake_data, &group->fake_data_len, fake_reason,
+                                   sizeof fake_reason) != 0 || group->fake_data_len == 0) {
+                reason_set(backend->error, sizeof backend->error,
+                           fake_reason[0] ? fake_reason : "the fake data file is empty");
+                goto failed;
+            }
+        }
+        backend->fake = bye_fakesend_start(backend->direct.ifname, fake_reason, sizeof fake_reason);
+        if (backend->fake) {
+            tcp.fake_send = bye_fakesend_send;
+            tcp.fake_ctx = backend->fake;
+        } else {
+            /* the cuts still work, so the tunnel starts and the status says why the fakes do not */
+            snprintf(backend->warning, sizeof backend->warning, "fake packets are off: %.150s",
+                     fake_reason);
+            fprintf(stderr, "byedpid: %s\n", backend->warning);
+        }
+    }
     tcp.hosts = backend->hosts;
     tcp.hosts_only = config->hosts_only;
     tcp.pool = (size_t)config->pool;
@@ -836,8 +866,16 @@ int bye_backend_start(bye_backend_t *backend, const bye_backend_options_t *optio
             snprintf(backend->dns_state, sizeof backend->dns_state,
                      "system dns stays outside the tunnel: %.150s", dns_reason);
             fprintf(stderr, "byedpid: %s\n", backend->dns_state);
-            reason_set(backend->error, sizeof backend->error, backend->dns_state);
-            goto failed;
+            /* ios 8 and 9 start the daemon without a usable bootstrap port, so
+               configd cannot be reached and no entry can be written. the tunnel
+               itself and its direct sockets do not need that entry, which the
+               probe shows on the same devices, so the lookups keep the
+               system resolver. from ios 12 the entry is what keeps wifi in the
+               status bar and the tunnel out of a dns loop, so it stays fatal */
+            if (senko_ios_major() >= 12) {
+                reason_set(backend->error, sizeof backend->error, backend->dns_state);
+                goto failed;
+            }
         }
     }
     bye_badge_on(backend->direct.ifname);

@@ -17,7 +17,6 @@ void bye_config_defaults(bye_config_t *config) {
     config->hosts_only = 1;
     config->pool = 1;
     config->version = BYE_CONFIG_VERSION;
-    snprintf(config->dns, sizeof config->dns, "%s", BYE_CONFIG_DNS_DEFAULT);
     snprintf(config->relay, sizeof config->relay, "%s", BYE_CONFIG_RELAY_DEFAULT);
     config->proxy_port = BYE_CONFIG_PROXY_PORT_DEFAULT;
     snprintf(config->desync_spec, sizeof config->desync_spec, "%s", BYE_STRATEGIES_DEFAULT);
@@ -26,16 +25,9 @@ void bye_config_defaults(bye_config_t *config) {
 
 int bye_config_migrate(bye_config_t *config) {
     if (!config || config->version >= BYE_CONFIG_VERSION) return 0;
-    if (config->version < 2 && !config->relay[0])
-        snprintf(config->relay, sizeof config->relay, "%s", BYE_CONFIG_RELAY_DEFAULT);
-    if (config->version < 3 && strcmp(config->desync_spec, BYE_CONFIG_SPEC_V2_DEFAULT) == 0) {
-        snprintf(config->desync_spec, sizeof config->desync_spec, "%s", BYE_STRATEGIES_DEFAULT);
-        (void)bye_strategies_parse(config->desync_spec, &config->desync_strategies, NULL, 0);
-    }
-    /* old files saved dns = system, so changing defaults alone leaves them on it */
-    if (!config->dns[0])
-        snprintf(config->dns, sizeof config->dns, "%s", BYE_CONFIG_DNS_DEFAULT);
-    config->version = BYE_CONFIG_VERSION;
+    /* every older build saved its own defaults and choices, and a youtube list picked
+       there stopped the videos on a newer build, so one reset replaces them all */
+    bye_config_defaults(config);
     return 1;
 }
 
@@ -207,8 +199,7 @@ static int apply(bye_config_t *config, const char *key, const char *value, char 
         return 0;
     }
     if (strcmp(key, "version") == 0) {
-        if (strcmp(value, "1") != 0 && strcmp(value, "2") != 0 && strcmp(value, "3") != 0 &&
-            strcmp(value, "4") != 0) {
+        if (value[0] < '1' || value[0] > '0' + BYE_CONFIG_VERSION || value[1] != '\0') {
             snprintf(why, why_cap, "version is 1 to %d", BYE_CONFIG_VERSION);
             return -1;
         }

@@ -483,6 +483,30 @@ static bye_wsconn_ctx_t *tls_ctx;
 
 /* what the next tunnel is configured with */
 static const char *knob_strategies = BYE_DESYNC_DEFAULT_SPEC;
+static int knob_fake_result = -99; /* the status the fake sender answers, -99 for no sender */
+static struct {
+    int      calls;
+    uint32_t offset[4];
+    size_t   len[4];
+    uint8_t  ttl[4];
+    int      md5[4];
+    uint8_t  first[4];
+} fake_log;
+
+static int fake_stub(void *ctx, int fd, uint32_t offset, const uint8_t *payload, size_t len,
+                     uint8_t ttl, int md5sig) {
+    (void)ctx;
+    CHECK(fd >= 0);
+    if (fake_log.calls < 4) {
+        fake_log.offset[fake_log.calls] = offset;
+        fake_log.len[fake_log.calls] = len;
+        fake_log.ttl[fake_log.calls] = ttl;
+        fake_log.md5[fake_log.calls] = md5sig;
+        fake_log.first[fake_log.calls] = payload[0];
+    }
+    ++fake_log.calls;
+    return knob_fake_result;
+}
 static bye_hosts_t *knob_hosts;
 static int knob_hosts_only;
 static int knob_gateway_addresses;
@@ -519,6 +543,10 @@ static void *run_tunnel(void *arg) {
     tun_loop_run(tunnel.loop, &tunnel.result);
     return NULL;
 }
+
+/* a tcp resolver on loopback: the udp relay asks it for every lookup */
+static int      dns_listener = -1;
+static uint16_t dns_port;
 
 static void tunnel_start(uint16_t gateway_port, int block_quic, int with_relay) {
     int fds[2];
@@ -565,6 +593,7 @@ static void tunnel_start(uint16_t gateway_port, int block_quic, int with_relay) 
         memcpy(tcp.ws_addresses.dc[1][0].address, (const uint8_t[]){127, 0, 0, 2}, 4);
         memcpy(tcp.ws_addresses.dc[1][1].address, LOOP4, 4);
     }
+    if (knob_fake_result != -99) tcp.fake_send = fake_stub;
     tcp.trace = getenv("BYE_TEST_TRACE") != NULL;
     if (with_relay) {
         snprintf(tcp.relay[0], sizeof tcp.relay[0], "relay.test");
@@ -580,6 +609,11 @@ static void tunnel_start(uint16_t gateway_port, int block_quic, int with_relay) 
     memset(&udp, 0, sizeof udp);
     udp.direct_socket = plain_socket;
     udp.block_quic = block_quic;
+    if (dns_listener >= 0) {
+        memcpy(udp.dns, LOOP4, 4);
+        udp.dns_set = 1;
+        udp.dns_port = dns_port;
+    }
 
     tunnel.tcp = calloc(1, bye_tcp_size());
     tunnel.udp = calloc(1, bye_udp_size());
@@ -964,6 +998,49 @@ static void test_fragmented_hello(void) {
         app_forget(&a);
         echo_forget(&desync_echo);
     }
+}
+
+static const bye_tcp_stats_t *tcp_stats(void);
+
+/* a fake part asks the sender once per part, with the stream offset the real bytes will
+   take, and the server still gets the app's bytes whole and in order. a sender that
+   cannot send leaves the cut and counts a miss */
+static void test_fake_flow(void) {
+    static app_t a;
+    knob_strategies = "-f1 -s5 -f-1 -t 5 -S";
+    for (int round = 0; round < 2; ++round) {
+        knob_fake_result = round == 0 ? 0 : -2;
+        memset(&fake_log, 0, sizeof fake_log);
+        tunnel_start(gate.port, 1, 0);
+        uint64_t sent = tcp_stats()->fake_sent, missed = tcp_stats()->fake_missed;
+        app_init(&a, 0, desync_echo.port, 40020 + round);
+        CHECK(app_connect(&a));
+        CHECK(app_send(&a, hello_openssl, hello_openssl_len, 3000));
+        record_t *rec = echo_wait(&desync_echo, hello_openssl_len, 3000);
+        CHECK(rec && rec->len == hello_openssl_len && memcmp(rec->data, hello_openssl, hello_openssl_len) == 0);
+        CHECK(fake_log.calls == 2);
+        CHECK(fake_log.offset[0] == 0 && fake_log.len[0] == 1 && fake_log.ttl[0] == 5 && fake_log.md5[0] == 1);
+        CHECK(fake_log.offset[1] == 5 && fake_log.len[1] == 517 && fake_log.ttl[1] == 5 && fake_log.first[1] == 0x16);
+        CHECK(tcp_stats()->fake_sent - sent == (round == 0 ? 2u : 0u));
+        CHECK(tcp_stats()->fake_missed - missed == (round == 0 ? 0u : 2u));
+        app_forget(&a);
+        echo_forget(&desync_echo);
+        tunnel_stop();
+    }
+    /* with no sender at all the parts are plain cuts */
+    knob_fake_result = -99;
+    tunnel_start(gate.port, 1, 0);
+    uint64_t missed = tcp_stats()->fake_missed;
+    app_init(&a, 0, desync_echo.port, 40022);
+    CHECK(app_connect(&a));
+    CHECK(app_send(&a, hello_openssl, hello_openssl_len, 3000));
+    record_t *rec = echo_wait(&desync_echo, hello_openssl_len, 3000);
+    CHECK(rec && rec->len == hello_openssl_len && memcmp(rec->data, hello_openssl, hello_openssl_len) == 0);
+    CHECK(tcp_stats()->fake_missed - missed == 2);
+    app_forget(&a);
+    echo_forget(&desync_echo);
+    tunnel_stop();
+    knob_strategies = BYE_DESYNC_DEFAULT_SPEC;
 }
 
 static void test_desync(void) {
@@ -1512,6 +1589,67 @@ static void test_udp(int expect_quic_dropped) {
     }
 }
 
+/* a lookup arrives as udp and is asked of the resolver over tcp, one framed
+   message each way */
+static void dns_case(const uint8_t *query, size_t query_len, uint16_t sport, size_t answer_len,
+                     const char *what) {
+    uint8_t p[1600], frame[1604], framed[2 + 1500], got[2 + 1500];
+    inbox.udp_seen = 0;
+    size_t n = pkt_udp4(p, APP4, sport, LOOP4, dns_port, query, query_len);
+    size_t f = pkt_frame(frame, p, n);
+    send(tunnel.peer, frame, f, 0);
+
+    int conn = -1;
+    for (int i = 0; i < 300 && conn < 0; ++i) {
+        pump(10);
+        conn = accept(dns_listener, NULL, NULL);
+    }
+    if (conn < 0) {
+        fprintf(stderr, "dns case failed: %s (no tcp connection)\n", what);
+        CHECK(conn >= 0);
+        return;
+    }
+    size_t have = 0;
+    for (int i = 0; i < 300 && have < 2 + query_len; ++i) {
+        pump(10);
+        ssize_t r = recv(conn, got + have, sizeof got - have, MSG_DONTWAIT);
+        if (r > 0) have += (size_t)r;
+    }
+    CHECK(have == 2 + query_len && got[0] == (query_len >> 8) && got[1] == (query_len & 0xff) &&
+          memcmp(got + 2, query, query_len) == 0);
+
+    /* the answer repeats the id and sets the response bit */
+    memset(framed + 2, 0xab, answer_len);
+    memcpy(framed + 2, query, 12 < answer_len ? 12 : answer_len);
+    framed[2 + 2] |= 0x80;
+    framed[0] = (uint8_t)(answer_len >> 8);
+    framed[1] = (uint8_t)answer_len;
+    send(conn, framed, 2 + answer_len, 0);
+    CHECK(wait_until(&inbox.udp_seen, 3000));
+    CHECK(inbox.udp_sport == dns_port);
+    if (answer_len <= 1232) {
+        CHECK(inbox.udp_len == answer_len && memcmp(inbox.udp_payload, framed + 2, answer_len) == 0);
+    } else {
+        /* too big for one datagram: the app gets the question back with tc set */
+        CHECK(inbox.udp_len == query_len && inbox.udp_payload[0] == query[0] &&
+              inbox.udp_payload[1] == query[1] && (inbox.udp_payload[2] & 0x82) == 0x82 &&
+              inbox.udp_payload[6] == 0 && inbox.udp_payload[7] == 0);
+        CHECK(memcmp(inbox.udp_payload + 12, query + 12, query_len - 12) == 0);
+    }
+    close(conn);
+}
+
+static void test_dns(void) {
+    /* id 0x1234, rd, one question: www.youtube.com a in */
+    static const uint8_t query[] = {
+        0x12, 0x34, 0x01, 0x00, 0, 1, 0, 0, 0, 0, 0, 0,
+        3, 'w', 'w', 'w', 7, 'y', 'o', 'u', 't', 'u', 'b', 'e', 3, 'c', 'o', 'm', 0,
+        0, 1, 0, 1 };
+    dns_case(query, sizeof query, 42000, 80, "small answer");
+    dns_case(query, sizeof query, 42001, 1232, "largest datagram");
+    dns_case(query, sizeof query, 42002, 1233, "answer over a datagram");
+}
+
 /* one telegram flow, and the host the gateway was asked for */
 static void test_relay(const char *what, const char *want_host) {
     static app_t a;
@@ -1688,12 +1826,27 @@ int main(int argc, char **argv) {
     echo_start(&desync_echo);
     echo_start(&fallback_echo);
 
+    dns_listener = socket(AF_INET, SOCK_STREAM, 0);
+    {
+        struct sockaddr_in da;
+        memset(&da, 0, sizeof da);
+        da.sin_family = AF_INET;
+        da.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        socklen_t dlen = sizeof da;
+        CHECK(bind(dns_listener, (struct sockaddr *)&da, sizeof da) == 0);
+        CHECK(listen(dns_listener, 4) == 0);
+        getsockname(dns_listener, (struct sockaddr *)&da, &dlen);
+        dns_port = ntohs(da.sin_port);
+        fcntl(dns_listener, F_SETFL, fcntl(dns_listener, F_GETFL, 0) | O_NONBLOCK);
+    }
+
     tunnel_start(gate.port, 1, 0);
     test_direct();
     test_desync();
     test_fragmented_hello();
     test_telegram();
     test_udp(1);
+    test_dns();
 
     /* the gateway is up but refuses the upgrade: both hosts fail, the flow
        goes direct and the app's bytes are not changed */
@@ -1798,6 +1951,8 @@ int main(int argc, char **argv) {
     test_desync();
     tunnel_stop();
     knob_strategies = BYE_DESYNC_DEFAULT_SPEC;
+
+    test_fake_flow();
 
     /* the host list: only the listed name is cut, or all but it */
     test_hosts_flow("%.*s\n", 1, 1, 0);

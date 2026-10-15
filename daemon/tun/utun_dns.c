@@ -42,10 +42,11 @@ static void diagnose_store(utun_dns_t *dns, int status) {
     kern_return_t server_status = server != MACH_PORT_NULL
         ? mach_port_type(mach_task_self(), server, &server_type) : KERN_INVALID_NAME;
     snprintf(dns->diagnostic, sizeof dns->diagnostic,
-        "SCError=%d uid=%lu task=%d bootstrap=%d type=0x%x matches_task=%d lookup=%d server=%d type=0x%x",
+        "SCError=%d uid=%lu task=%d bootstrap=%d type=0x%x matches_task=%d lookup=%d server=%d type=0x%x"
+        " port=0x%x leader=%d",
         status, (unsigned long)geteuid(), task_status, port_status, bootstrap_type,
         task_status == KERN_SUCCESS && task_bootstrap == bootstrap_port,
-        lookup, server_status, server_type);
+        lookup, server_status, server_type, (unsigned)bootstrap_port, getsid(0) == getpid());
     fprintf(stderr, "byedpid: configd: %s\n", dns->diagnostic);
     if (server != MACH_PORT_NULL) release_diagnostic_port(server);
     if (task_status == KERN_SUCCESS && task_bootstrap != MACH_PORT_NULL)

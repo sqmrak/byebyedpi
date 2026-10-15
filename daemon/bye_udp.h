@@ -23,7 +23,8 @@ typedef struct {
     direct_socket_fn direct_socket;
     void            *direct_ctx;
     int              block_quic;
-    uint8_t          dns[4]; /* udp 53 goes here when dns_set */
+    uint8_t          dns[4]; /* dns queries go here over tcp when dns_set */
+    uint16_t         dns_port; /* the port that carries dns, 0 for 53 */
     int              dns_set;
     int              trace;
 } bye_udp_config_t;

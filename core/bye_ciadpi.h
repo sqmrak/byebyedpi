@@ -17,10 +17,13 @@ extern "C" {
      -r           tls record cuts      -M  mod-http       -m  tls minor version
      -e           the urgent byte      -K  protocols      -A  groups with triggers t r s n
      -T           the wait for an answer     -g  the ttl a socket gets back
-   -f cuts like -s: a fake packet needs a splice of the kernel's own buffer, which
-   xnu does not have. the options for proxy mode, fake packets, udp, linux sockets
-   and the host or address filters are read and left out, each with a line in
-   notes. an option that does not exist is an error */
+     -f           a fake packet of the part's length, sent raw with the sequence
+                  numbers of the real bytes (see bye_fake.h), then the part itself
+     -t -n -l -O -Q -S  its ttl, name, data file, offset, hello changes, md5 option
+   -l takes a file name in the list directory, never a path. -Q takes r o m d.
+   the options for proxy mode, udp, linux sockets and the host or address
+   filters are read and left out, each with a line in notes. an option that does
+   not exist is an error */
 bye_desync_status_t bye_ciadpi_parse(const char *text, bye_strategies_t *out, char *error,
                                      size_t error_cap);
 

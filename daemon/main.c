@@ -7,6 +7,8 @@
 #include "bye_paths.h"
 #include "bye_probe.h"
 #include "bye_tgproxy.h"
+#include "bye_tls_owner.h"
+#include "tun/legacy_ios.h"
 #include "tun/core/senko_time.h"
 #include "tun/proc_detach.h"
 
@@ -36,6 +38,7 @@ typedef struct {
     char          ca_file[PATH_MAX_LEN];
     char          token_path[PATH_MAX_LEN];
     int           trace;
+    int           managed; /* launchd started the process */
     int           wanted;       /* the user asked for a tunnel, keep trying to hold one */
     int           attempts;     /* tries since the tunnel last worked */
     int64_t       next_try_ms;
@@ -47,6 +50,9 @@ typedef struct {
     bye_tgproxy_t *proxy;
     bye_wsconn_ctx_t *proxy_tls;
     char          proxy_error[BYE_TGPROXY_ERROR_MAX];
+    int           tls_switch;
+    int           tls_restart;
+    char          tls_error[256];
     /* the physical interface the tunnel leaves by, for the proxy's sockets, which
        are made on other threads than the one that starts and stops the tunnel */
     pthread_mutex_t direct_lock;
@@ -67,7 +73,8 @@ static void on_signal(int sig) {
 
 static void usage(void) {
     fprintf(stderr,
-            "usage: byedpid [--ctl PATH] [--config PATH] [--ca PATH] [--trace] [--managed]\n");
+            "usage: byedpid [--ctl PATH] [--config PATH] [--ca PATH] [--trace] [--managed]\n"
+            "       byedpid --restore-tls\n");
 }
 
 
@@ -142,13 +149,34 @@ static int save_config(const daemon_t *d) {
 }
 
 
+static int tls_owner(daemon_t *d, int enabled) {
+    if (!d->tls_switch) return 0;
+    int changed = 0;
+    int result = bye_tls_owner_set(enabled, &changed, d->tls_error, sizeof d->tls_error);
+    if (changed) {
+        d->tls_restart = 1;
+        fprintf(stderr, "byedpid: %s tlsfix, restart apps to reload their tls hooks\n",
+                enabled ? "disabled" : "restored");
+    }
+    if (result != 0) fprintf(stderr, "byedpid: %s\n", d->tls_error);
+    return result;
+}
+
 static int tunnel_start(daemon_t *d, char *reason, size_t cap) {
     bye_backend_options_t options;
     memset(&options, 0, sizeof options);
     options.config = d->config;
     options.ca_file = d->ca_file;
     options.trace = d->trace;
-    if (bye_backend_start(&d->backend, &options, reason, cap) != 0) return -1;
+    if (tls_owner(d, 1) != 0) {
+        snprintf(reason, cap, "%s", d->tls_error);
+        tls_owner(d, 0);
+        return -1;
+    }
+    if (bye_backend_start(&d->backend, &options, reason, cap) != 0) {
+        tls_owner(d, 0);
+        return -1;
+    }
     pthread_mutex_lock(&d->direct_lock);
     d->direct_valid = bye_backend_direct(&d->backend, &d->direct) == 0;
     pthread_mutex_unlock(&d->direct_lock);
@@ -160,6 +188,7 @@ static int tunnel_start(daemon_t *d, char *reason, size_t cap) {
 }
 
 static void tunnel_stop(daemon_t *d) {
+    tls_owner(d, 0);
     if (!bye_backend_running(&d->backend) && !d->backend.active) return;
     pthread_mutex_lock(&d->direct_lock);
     d->direct_valid = 0;
@@ -324,6 +353,7 @@ static size_t status_reply(daemon_t *d, char *out, size_t cap) {
     at = emit(out, cap, at, "error=%s\n", d->last_error);
     at = emit(out, cap, at, "ended=%s\n", ended);
     at = emit(out, cap, at, "warning=%s\n", bye_backend_warning(&d->backend));
+    at = emit(out, cap, at, "tls.restart_required=%d\ntls.error=%s\n", d->tls_restart, d->tls_error);
     at = emit(out, cap, at, "config_error=%s\n", d->config_error);
     at = emit(out, cap, at, "dns=%s\n", bye_backend_dns_state(&d->backend));
     at = emit(out, cap, at, "configd=%s\n", d->backend.dns.diagnostic);
@@ -347,6 +377,8 @@ static size_t status_reply(daemon_t *d, char *out, size_t cap) {
         at = emit(out, cap, at, "tcp.direct=%llu\n", (unsigned long long)snap.tcp.direct);
         at = emit(out, cap, at, "tcp.desync=%llu\n", (unsigned long long)snap.tcp.desync_applied);
         at = emit(out, cap, at, "tcp.desync_passed=%llu\n", (unsigned long long)snap.tcp.desync_passed);
+        at = emit(out, cap, at, "tcp.fake_sent=%llu\n", (unsigned long long)snap.tcp.fake_sent);
+        at = emit(out, cap, at, "tcp.fake_missed=%llu\n", (unsigned long long)snap.tcp.fake_missed);
         at = emit(out, cap, at, "tcp.telegram=%llu\n", (unsigned long long)snap.tcp.telegram_ws);
         at = emit(out, cap, at, "tcp.telegram_fallback=%llu\n",
                   (unsigned long long)snap.tcp.telegram_fallback);
@@ -492,6 +524,7 @@ static size_t handle(void *ctx, const char *line, char *out, size_t cap) {
     if (strcmp(line, "stop") == 0) {
         d->wanted = 0;
         tunnel_stop(d);
+        if (d->tls_error[0]) return reply_line(out, cap, "ERR", d->tls_error);
         return reply_line(out, cap, "OK", "");
     }
     return reply_line(out, cap, "ERR", "unknown command");
@@ -548,7 +581,8 @@ static int parse_args(daemon_t *d, int argc, char **argv, char *ctl_path, size_t
         } else if (strcmp(arg, "--trace") == 0) {
             d->trace = 1;
         } else if (strcmp(arg, "--managed") == 0) {
-            /* launchd owns the process, there is nothing to detach from */
+            /* launchd owns the process, so main leaves its session alone */
+            d->managed = 1;
         } else {
             usage();
             return -1;
@@ -559,6 +593,13 @@ static int parse_args(daemon_t *d, int argc, char **argv, char *ctl_path, size_t
 
 int main(int argc, char **argv) {
     static daemon_t d;
+    if (argc == 2 && strcmp(argv[1], "--restore-tls") == 0) {
+        char error[256];
+        if (geteuid() != 0) return 1;
+        if (bye_tls_owner_set(0, NULL, error, sizeof error) == 0) return 0;
+        fprintf(stderr, "byedpid: %s\n", error);
+        return 1;
+    }
     char ctl_path[PATH_MAX_LEN] = BYE_CTL_SOCKET;
     snprintf(d.config_path, sizeof d.config_path, "%s", BYE_CONFIG_PATH);
     snprintf(d.ca_file, sizeof d.ca_file, "%s", BYE_CA_BUNDLE);
@@ -568,7 +609,11 @@ int main(int argc, char **argv) {
                            ? strlen(ctl_path) - 5 : strlen(ctl_path)), ctl_path) >= (int)sizeof d.token_path)
         return 2;
 
-    senko_proc_detach();
+    /* launchd keeps its job in the session it made for it. ios 8 and 9 do not
+       make the job a session leader, so detaching there moved the daemon out
+       of that session, and it was then left without a bootstrap port: configd
+       could not be reached at all */
+    if (!d.managed) senko_proc_detach();
     senko_raise_memory_limit();
     signal(SIGPIPE, SIG_IGN);
     if (pipe(signal_pipe) != 0 || fcntl(signal_pipe[0], F_SETFL, O_NONBLOCK) != 0 ||
@@ -582,24 +627,30 @@ int main(int argc, char **argv) {
     sigaction(SIGTERM, &action, NULL);
     sigaction(SIGINT, &action, NULL);
 
+    char error[256];
+    bye_ctl_t *ctl = bye_ctl_open(ctl_path, d.token_path, handle, &d, error, sizeof error);
+    if (!ctl) {
+        fprintf(stderr, "byedpid: %s\n", error);
+        return 1;
+    }
+    fprintf(stderr, "byedpid: control socket %s\n", ctl_path);
+    int ios_major = senko_ios_major();
+    d.tls_switch = geteuid() == 0 && ios_major >= 5 && ios_major < 12;
+    if (tls_owner(&d, 0) != 0) {
+        bye_ctl_close(ctl);
+        return 1;
+    }
+
     /* a killed daemon leaves "1" behind, and the hook would keep the badge */
     bye_badge_off();
     if (bye_backend_init(&d.backend) != 0) {
         fprintf(stderr, "byedpid: cannot start the tunnel runtime\n");
+        bye_ctl_close(ctl);
         return 1;
     }
     pthread_mutex_init(&d.direct_lock, NULL);
     load_config(&d);
     proxy_apply(&d);
-
-    char error[256];
-    bye_ctl_t *ctl = bye_ctl_open(ctl_path, d.token_path, handle, &d, error, sizeof error);
-    if (!ctl) {
-        fprintf(stderr, "byedpid: %s\n", error);
-        bye_backend_destroy(&d.backend);
-        return 1;
-    }
-    fprintf(stderr, "byedpid: control socket %s\n", ctl_path);
 
     if (d.config.autostart && !d.config_error[0]) {
         d.wanted = 1;
@@ -632,18 +683,21 @@ int main(int argc, char **argv) {
             bye_ctl_service(ctl, &readable, &writable);
         }
         supervise(&d, senko_now_ms());
+        char revive_error[256];
+        int revived = bye_ctl_revive(ctl, revive_error, sizeof revive_error);
+        if (revived > 0) fprintf(stderr, "byedpid: control socket %s was removed, made again\n", ctl_path);
+        else if (revived < 0) fprintf(stderr, "byedpid: %s\n", revive_error);
     }
 
     fprintf(stderr, "byedpid: shutting down\n");
     d.wanted = 0;
     tunnel_stop(&d);
     proxy_stop(&d);
-    bye_ctl_close(ctl);
     if (d.probe) {
         bye_probe_destroy(d.probe);
         free(d.probe);
     }
-    (void)unlink(d.token_path);
     bye_backend_destroy(&d.backend);
+    bye_ctl_close(ctl);
     return 0;
 }

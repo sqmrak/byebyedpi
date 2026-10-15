@@ -279,7 +279,7 @@ static void test_run(void) {
     CHECK(bye_probe_start(probe, &request, error, sizeof error) == 0);
     CHECK(wait_done(probe, 60000));
     bye_probe_report(probe, report, sizeof report);
-    CHECK(line_of(report, "configured", value, sizeof value) && strcmp(value, "4") == 0);
+    CHECK(line_of(report, "configured", value, sizeof value) && strcmp(value, "5") == 0);
     CHECK(strstr(report, "candidate.0=") && strstr(report, " tlsrec=mid;split=1,mid\n"));
 
     /* a small buffer cuts the report at a line, never inside one */

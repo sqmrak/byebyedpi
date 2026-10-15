@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 #include "bye_config.h"
+#include "bye_fakesend.h"
 #include "bye_hosts.h"
 #include "bye_iface.h"
 #include "bye_tcp.h"
@@ -56,6 +57,7 @@ typedef struct {
     bye_udp_t *udp;
     bye_wsconn_ctx_t *tls;
     bye_hosts_t *hosts;
+    bye_fakesend_t *fake;
     direct_socket_iface_t direct;
     utun_dns_t dns;
     tun_loop_result_t result;

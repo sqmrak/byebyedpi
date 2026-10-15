@@ -28,7 +28,7 @@ extern "C" {
      telegram.pool = 0..2   websocket connections kept ready for each
                             datacenter that was used lately
      quic = block|pass      refuse udp 443 so apps fall back to tcp
-     dns = ADDRESS|system   an ipv4 resolver (1.1.1.1 by default), or the system's
+     dns = ADDRESS|system   an ipv4 resolver, or the system's (the default)
      relay = D[,D...]|none  up to four cloudflare domains that carry kwsN.D to
                             telegram, tried before telegram's own addresses
      autostart = on|off     start the tunnel when the daemon starts
@@ -46,15 +46,11 @@ extern "C" {
    domains below, tried before telegram's own addresses, so a network that
    drops those works at once. `relay = none` turns them off.
 
-   a file without `version = 2` or more was written by a build whose default was no
-   relay, so its `none` was never a choice and is replaced by the default once.
-   a file below `version = 3` that holds the single cut that was the default then gets
-   `auto`, which tries the next cut itself when a hello gets no answer.
-   a file below `version = 4` with system dns gets 1.1.1.1 once */
+   a file below the current `version` was written by an older build. it is
+   replaced by the defaults once, so a choice made there cannot outlive the
+   upgrade */
 
-#define BYE_CONFIG_VERSION 4
-#define BYE_CONFIG_SPEC_V2_DEFAULT "tlsrec=mid;split=1,mid"
-#define BYE_CONFIG_DNS_DEFAULT "1.1.1.1"
+#define BYE_CONFIG_VERSION 6
 #define BYE_CONFIG_RELAY_DEFAULT "pclead.co.uk,lovetrue.co.uk,kartoshka.co.uk"
 
 #define BYE_CONFIG_SPEC_MAX 1024
@@ -95,7 +91,7 @@ typedef enum {
 
 void bye_config_defaults(bye_config_t *config);
 
-/* 1 when an old file was upgraded, 0 when it already uses this version */
+/* 1 when an old file was reset to the defaults, 0 when it already uses this version */
 int bye_config_migrate(bye_config_t *config);
 
 /* a failure leaves *config as it was and names the line in error */

@@ -244,12 +244,14 @@ static void test_strategies(void) {
     CHECK(list.count == 1 && list.item[0].split_count == 1);
     CHECK(bye_strategies_parse(BYE_STRATEGIES_DEFAULT, &list, error, sizeof error) == BYE_DESYNC_OK);
     /* auto is the built-in list, tried in order, the plain hello last */
-    CHECK(list.count == 4);
+    CHECK(list.count == 5);
     CHECK(list.item[0].has_tlsrec && list.item[0].tlsrec.kind == BYE_POS_MID && list.item[0].split_count == 2);
-    CHECK(list.item[2].has_oob && list.item[3].split_count == 0 && !list.item[3].has_tlsrec);
+    CHECK(bye_strategies_use_fake(&list) && list.item[2].cli && (list.item[2].trigger & BYE_TRIGGER_TORST));
+    CHECK(bye_strategies_after(&list, 0, 1, BYE_TRIGGER_TORST) == 2);
+    CHECK(list.item[3].has_oob && list.item[4].split_count == 0 && !list.item[4].has_tlsrec);
     CHECK(bye_strategies_after(&list, 0, 0, BYE_TRIGGER_TORST) == 1);
-    CHECK(bye_strategies_after(&list, 0, 3, BYE_TRIGGER_TORST) == 0);
-    CHECK(bye_strategies_parse("  auto ", &list, error, sizeof error) == BYE_DESYNC_OK && list.count == 4);
+    CHECK(bye_strategies_after(&list, 0, 4, BYE_TRIGGER_TORST) == 0);
+    CHECK(bye_strategies_parse("  auto ", &list, error, sizeof error) == BYE_DESYNC_OK && list.count == 5);
     CHECK(bye_strategies_parse("auto|none", &list, error, sizeof error) == BYE_DESYNC_ERR_SPEC);
     CHECK(bye_strategies_parse("autos", &list, error, sizeof error) == BYE_DESYNC_ERR_SPEC);
     CHECK(bye_strategies_parse(" none | split=2 ", &list, error, sizeof error) == BYE_DESYNC_OK);
@@ -271,6 +273,10 @@ static void test_strategies(void) {
     CHECK(bye_strategies_parse("tlsrec=mid|-d1 -s5+s -As -s3+s|none", &list, error, sizeof error) == BYE_DESYNC_OK);
     CHECK(list.count == cli_only.count + 2 && !list.item[0].cli && list.item[1].cli &&
           !list.item[list.count - 1].cli);
+    /* a ciadpi step after another item is reachable after a failure, and a trigger of its own stays */
+    CHECK(bye_strategies_parse("none|-d1|-At -d2", &list, error, sizeof error) == BYE_DESYNC_OK);
+    CHECK(list.item[1].trigger == (BYE_TRIGGER_TORST | BYE_TRIGGER_TLSERR) && list.item[3].trigger == BYE_TRIGGER_TORST);
+    CHECK(bye_strategies_after(&list, 0, 0, BYE_TRIGGER_TORST) == 1);
     CHECK(bye_strategies_parse("none|-d1 -T 7|none", &list, error, sizeof error) == BYE_DESYNC_OK);
     CHECK(list.count == 3 && list.timeout_ms != 0);
     CHECK(bye_strategies_parse("none|-d1 -frob|none", &list, error, sizeof error) == BYE_DESYNC_ERR_SPEC);
@@ -349,7 +355,8 @@ static void test_cli_parse(void) {
         CHECK(list.item[0].parts[i].mode == (mode[i] == 'd' ? BYE_PART_DISORDER : BYE_PART_SPLIT));
         CHECK(list.item[0].parts[i].pos.flags == (i ? BYE_OFFSET_SNI : 0u));
     }
-    CHECK(strstr(list.notes, "-S") && strstr(list.notes, "-a"));
+    CHECK(list.item[0].md5sig && list.item[1].md5sig);
+    CHECK(strstr(list.notes, "-a") && !strstr(list.notes, "-S"));
     CHECK(list.timeout_ms == 0 && list.def_ttl == 0);
 
     /* long options, quotes and clusters read the same */
@@ -360,11 +367,11 @@ static void test_cli_parse(void) {
     CHECK(list.item[0].parts[1].pos.flags == BYE_OFFSET_HOST);
     list = cli_ok("  -e '\\x41' -o 3 -q 5 -M h,d -m 2 -Kt,h -g 64 -T 2.5 -f 4 ");
     CHECK(list.item[0].oob_char_set && list.item[0].oob_char == 0x41);
-    CHECK(list.item[0].parts[1].mode == BYE_PART_DISOOB && list.item[0].parts[2].mode == BYE_PART_SPLIT);
+    CHECK(list.item[0].parts[1].mode == BYE_PART_DISOOB && list.item[0].parts[2].mode == BYE_PART_FAKE);
     CHECK(list.item[0].mod_http == (BYE_HTTP_HMIX | BYE_HTTP_DMIX) && list.item[0].tlsminor == 2);
     CHECK(list.item[0].proto == (BYE_PROTO_TLS | BYE_PROTO_HTTP));
     CHECK(list.def_ttl == 64 && list.timeout_ms == 2500);
-    CHECK(strstr(list.notes, "-f"));
+    CHECK(!strstr(list.notes, "-f"));
     list = cli_ok("-s1:3:2 -s-1 -s4+nm -s0+sr -s2+ss");
     CHECK(list.item[0].parts[0].pos.repeats == 3 && list.item[0].parts[0].pos.skip == 2);
     CHECK(list.item[0].parts[1].pos.offset == -1);

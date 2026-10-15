@@ -10,6 +10,7 @@
 #include <string.h>
 #include <unistd.h>
 #include "tlsfix_paths.h"
+#include "../daemon/bye_paths.h"
 
 #define stl_prefs_path "/var/mobile/Library/Preferences/com.byebyedpi.byebyetlsfix.plist"
 
@@ -78,7 +79,17 @@ static int stl_cfbool(CFDictionaryRef d, const char *key, int def) {
 /* another tls shim already owns these securetransport hooks */
 static int stl_external_tlsfix(void) {
     return access(STL_SUBSTRATE_DIR "/tlsfix.dylib", F_OK) == 0 ||
-           access(STL_SUBSTRATE_DIR "/senkotlsfix.dylib", F_OK) == 0;
+           access(STL_SUBSTRATE_DIR "/senkotlsfix.dylib", F_OK) == 0 ||
+           access("/usr/lib/TweakInject/tlsfix.dylib", F_OK) == 0 ||
+           access("/usr/lib/TweakInject/senkotlsfix.dylib", F_OK) == 0;
+}
+
+/* the disabled tlsfix served every cfnetwork process, keep that coverage */
+static int stl_replaces_tlsfix(void) {
+    return access(STL_SUBSTRATE_DIR "/" BYE_TLS_DISABLED_NAME, F_OK) == 0 ||
+           access("/usr/lib/TweakInject/" BYE_TLS_DISABLED_NAME, F_OK) == 0 ||
+           access(STL_SUBSTRATE_DIR "/" BYE_SENKO_TLS_DISABLED_NAME, F_OK) == 0 ||
+           access("/usr/lib/TweakInject/" BYE_SENKO_TLS_DISABLED_NAME, F_OK) == 0;
 }
 
 static void stl_gate_init(void) {
@@ -90,6 +101,7 @@ static void stl_gate_init(void) {
         return;
     }
     if (stl_external_tlsfix()) {
+        stl_log("gate: external tlsfix or senkotlsfix installed, byebyetlsfix disabled");
         g_gate_state = -1;
         return;
     }
@@ -102,10 +114,11 @@ static void stl_gate_init(void) {
     }
 
     CFDictionaryRef prefs = stl_load_prefs();
+    int replacing = stl_replaces_tlsfix();
     CFBundleRef bundle = CFBundleGetMainBundle();
     if (!bundle) {
-        if (prefs && stl_cfbool(prefs, "enableAll", 0)) {
-            CFRelease(prefs);
+        if (replacing || (prefs && stl_cfbool(prefs, "enableAll", 0))) {
+            if (prefs) CFRelease(prefs);
             g_gate_state = 1;
             stl_log("gate: active for %s enableall", pn ? pn : "unknown");
             return;
@@ -117,7 +130,8 @@ static void stl_gate_init(void) {
     CFStringRef bid_ref = CFBundleGetIdentifier(bundle);
     if (!bid_ref) {
         if (prefs) CFRelease(prefs);
-        g_gate_state = -1;
+        g_gate_state = replacing ? 1 : -1;
+        if (replacing) stl_log("gate: active for %s replacing tlsfix", pn ? pn : "unknown");
         return;
     }
     char bid[256];
@@ -141,7 +155,7 @@ static void stl_gate_init(void) {
             on = 1;
     }
     if (on < 0)
-        on = stl_default_on_bundle(bid) ? 1 : 0;
+        on = replacing || stl_default_on_bundle(bid) ? 1 : 0;
 
     if (prefs) CFRelease(prefs);
     g_gate_state = on ? 1 : -1;

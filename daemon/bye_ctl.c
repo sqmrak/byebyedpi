@@ -29,6 +29,10 @@ typedef struct {
 
 struct bye_ctl {
     int                listen_fd;
+    int                lock_fd;
+    int                revive_errno;
+    char               lock_path[160];
+    char               token_path[160];
     char               socket_path[108];
     char               token[BYE_CTL_TOKEN_LEN + 1];
     bye_ctl_handler_fn handler;
@@ -80,11 +84,80 @@ static int write_token(const char *path, char *token) {
     return 0;
 }
 
+/* hold the inode until teardown so launchd and the installer cannot both own the socket */
+static int lock_socket(const char *socket_path) {
+    char path[160];
+    if (snprintf(path, sizeof path, "%s.lock", socket_path) >= (int)sizeof path) {
+        errno = ENAMETOOLONG;
+        return -1;
+    }
+    int fd = open(path, O_RDWR | O_CREAT | O_NOFOLLOW | O_NONBLOCK, 0600);
+    if (fd < 0) return -1;
+    struct stat st;
+    if (fstat(fd, &st) != 0) {
+        int saved = errno;
+        close(fd);
+        errno = saved;
+        return -1;
+    }
+    if (!S_ISREG(st.st_mode) || st.st_uid != geteuid() || st.st_nlink != 1 || (st.st_mode & 0022)) {
+        close(fd);
+        errno = EACCES;
+        return -1;
+    }
+    struct flock lock;
+    memset(&lock, 0, sizeof lock);
+    lock.l_type = F_WRLCK;
+    lock.l_whence = SEEK_SET;
+    if (fcntl(fd, F_SETLK, &lock) != 0 || fcntl(fd, F_SETFD, FD_CLOEXEC) != 0) {
+        int saved = errno;
+        close(fd);
+        errno = saved;
+        return -1;
+    }
+    return fd;
+}
+
 static int remove_stale(const char *path) {
     struct stat st;
     if (lstat(path, &st) != 0) return errno == ENOENT ? 0 : -1;
     if (!S_ISSOCK(st.st_mode)) return -1;
     return unlink(path);
+}
+
+/* a listening socket at the path, restricted to root and mobile */
+static int open_listener(const char *socket_path, char *error, size_t error_cap) {
+    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd < 0) {
+        fail(error, error_cap, "cannot create the control socket", errno);
+        return -1;
+    }
+    if (remove_stale(socket_path) != 0) {
+        fail(error, error_cap, "cannot replace the old control socket", errno);
+        goto fail;
+    }
+    struct sockaddr_un addr;
+    memset(&addr, 0, sizeof addr);
+    addr.sun_family = AF_UNIX;
+    snprintf(addr.sun_path, sizeof addr.sun_path, "%s", socket_path);
+    if (bind(fd, (struct sockaddr *)&addr, sizeof addr) != 0) {
+        fail(error, error_cap, "cannot bind the control socket", errno);
+        goto fail;
+    }
+    if ((chown(socket_path, 0, MOBILE_GID) != 0 && geteuid() == 0) || chmod(socket_path, 0660) != 0) {
+        fail(error, error_cap, "cannot restrict the control socket", errno);
+        goto fail_bound;
+    }
+    if (listen(fd, BYE_CTL_CLIENTS_MAX) != 0 || set_nonblock(fd) != 0) {
+        fail(error, error_cap, "cannot listen on the control socket", errno);
+        goto fail_bound;
+    }
+    return fd;
+fail_bound:
+    (void)unlink(socket_path);
+fail:
+    close(fd);
+    return -1;
 }
 
 bye_ctl_t *bye_ctl_open(const char *socket_path, const char *token_path,
@@ -97,6 +170,7 @@ bye_ctl_t *bye_ctl_open(const char *socket_path, const char *token_path,
         return NULL;
     }
     ctl->listen_fd = -1;
+    ctl->lock_fd = -1;
     for (size_t i = 0; i < BYE_CTL_CLIENTS_MAX; ++i) ctl->clients[i].fd = -1;
     ctl->handler = handler;
     ctl->ctx = ctx;
@@ -104,44 +178,87 @@ bye_ctl_t *bye_ctl_open(const char *socket_path, const char *token_path,
         fail(error, error_cap, "the socket path is too long", ENAMETOOLONG);
         goto fail;
     }
+    if (strlen(token_path) >= sizeof ctl->token_path) {
+        fail(error, error_cap, "the token path is too long", ENAMETOOLONG);
+        goto fail;
+    }
     snprintf(ctl->socket_path, sizeof ctl->socket_path, "%s", socket_path);
-
-    ctl->listen_fd = socket(AF_UNIX, SOCK_STREAM, 0);
-    if (ctl->listen_fd < 0) {
-        fail(error, error_cap, "cannot create the control socket", errno);
+    snprintf(ctl->token_path, sizeof ctl->token_path, "%s", token_path);
+    snprintf(ctl->lock_path, sizeof ctl->lock_path, "%s.lock", socket_path);
+    ctl->lock_fd = lock_socket(socket_path);
+    if (ctl->lock_fd < 0) {
+        fail(error, error_cap, "cannot own the control socket", errno);
         goto fail;
     }
-    if (remove_stale(socket_path) != 0) {
-        fail(error, error_cap, "cannot replace the old control socket", errno);
-        goto fail;
-    }
-    struct sockaddr_un addr;
-    memset(&addr, 0, sizeof addr);
-    addr.sun_family = AF_UNIX;
-    snprintf(addr.sun_path, sizeof addr.sun_path, "%s", socket_path);
-    if (bind(ctl->listen_fd, (struct sockaddr *)&addr, sizeof addr) != 0) {
-        fail(error, error_cap, "cannot bind the control socket", errno);
-        goto fail;
-    }
-    if ((chown(socket_path, 0, MOBILE_GID) != 0 && geteuid() == 0) || chmod(socket_path, 0660) != 0) {
-        fail(error, error_cap, "cannot restrict the control socket", errno);
-        goto fail_bound;
-    }
-    if (listen(ctl->listen_fd, BYE_CTL_CLIENTS_MAX) != 0 || set_nonblock(ctl->listen_fd) != 0) {
-        fail(error, error_cap, "cannot listen on the control socket", errno);
-        goto fail_bound;
-    }
+    ctl->listen_fd = open_listener(socket_path, error, error_cap);
+    if (ctl->listen_fd < 0) goto fail;
     if (write_token(token_path, ctl->token) != 0) {
         fail(error, error_cap, "cannot write the control token", errno);
-        goto fail_bound;
+        (void)unlink(socket_path);
+        goto fail;
     }
     return ctl;
-fail_bound:
-    (void)unlink(socket_path);
 fail:
     if (ctl->listen_fd >= 0) close(ctl->listen_fd);
+    if (ctl->lock_fd >= 0) close(ctl->lock_fd);
     free(ctl);
     return NULL;
+}
+
+static int path_is(const char *path, int fd) {
+    struct stat on_disk, held;
+    return lstat(path, &on_disk) == 0 && fstat(fd, &held) == 0 &&
+           on_disk.st_dev == held.st_dev && on_disk.st_ino == held.st_ino;
+}
+
+int bye_ctl_revive(bye_ctl_t *ctl, char *error, size_t error_cap) {
+    if (error && error_cap) error[0] = '\0';
+    if (!ctl) return 0;
+    struct stat st;
+    int socket_gone = lstat(ctl->socket_path, &st) != 0 && errno == ENOENT;
+    int token_gone = lstat(ctl->token_path, &st) != 0 && errno == ENOENT;
+    if (!socket_gone && !token_gone) {
+        ctl->revive_errno = 0;
+        return 0;
+    }
+    int saved = 0;
+    const char *what = NULL;
+    /* the lock file lives in the same directory and may be gone too, and a lock on an
+       unlinked inode no longer keeps a second daemon out */
+    if (!path_is(ctl->lock_path, ctl->lock_fd)) {
+        if (ctl->lock_fd >= 0) close(ctl->lock_fd);
+        ctl->lock_fd = -1;
+        int fresh = lock_socket(ctl->socket_path);
+        if (fresh < 0) {
+            saved = errno;
+            what = "cannot own the control socket again";
+        } else {
+            ctl->lock_fd = fresh;
+        }
+    }
+    if (!what && socket_gone) {
+        int fd = open_listener(ctl->socket_path, NULL, 0);
+        if (fd < 0) {
+            saved = errno;
+            what = "cannot bind the control socket again";
+        } else {
+            close(ctl->listen_fd);
+            ctl->listen_fd = fd;
+        }
+    }
+    if (!what && write_token(ctl->token_path, ctl->token) != 0) {
+        saved = errno;
+        what = "cannot write the control token again";
+    }
+    if (!what) {
+        ctl->revive_errno = 0;
+        return 1;
+    }
+    /* once per cause, the loop calls this every second */
+    if (ctl->revive_errno == saved) return 0;
+    ctl->revive_errno = saved;
+    fail(error, error_cap, what, saved);
+    return -1;
 }
 
 static void drop_client(client_t *client) {
@@ -155,6 +272,8 @@ void bye_ctl_close(bye_ctl_t *ctl) {
     for (size_t i = 0; i < BYE_CTL_CLIENTS_MAX; ++i) drop_client(&ctl->clients[i]);
     if (ctl->listen_fd >= 0) close(ctl->listen_fd);
     (void)unlink(ctl->socket_path);
+    (void)unlink(ctl->token_path);
+    if (ctl->lock_fd >= 0) close(ctl->lock_fd);
     free(ctl);
 }
 

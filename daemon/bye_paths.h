@@ -23,6 +23,9 @@
 /* /var/tmp is emptied at boot, and so are the routes it describes */
 #define BYE_LEFTOVERS_PATH "/var/tmp/byedpid-utun-routes"
 #define BYE_SYSTEM_LOG "/var/log/byebyedpi-system.log"
+#define BYE_TLS_LOG "/var/log/byebyetlsfix.log"
+#define BYE_TLS_DISABLED_NAME "tlsfix.dylib.byebyedpi-disabled"
+#define BYE_SENKO_TLS_DISABLED_NAME "senkotlsfix.dylib.byebyedpi-disabled"
 
 /* what the springboard hook reads, and the notification that wakes it */
 #define BYE_STATUS_STATE "/var/mobile/Library/Preferences/com.byebyedpi.status.state"

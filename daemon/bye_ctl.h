@@ -32,6 +32,12 @@ bye_ctl_t *bye_ctl_open(const char *socket_path, const char *token_path,
                         bye_ctl_handler_fn handler, void *ctx, char *error, size_t error_cap);
 void bye_ctl_close(bye_ctl_t *ctl);
 
+/* ios 6.1.3 empties /var/tmp some time after boot, and the socket, the token and
+   the lock go with it while the daemon keeps running. this makes them again, with
+   a new token. 1 when something was rebuilt, 0 when nothing was missing (or the
+   same failure was already reported), -1 with the reason in error */
+int bye_ctl_revive(bye_ctl_t *ctl, char *error, size_t error_cap);
+
 /* adds the socket's descriptors to the sets, like the tunnel loop's hooks */
 void bye_ctl_prepare(bye_ctl_t *ctl, fd_set *readable, fd_set *writable, int *highest);
 void bye_ctl_service(bye_ctl_t *ctl, const fd_set *readable, const fd_set *writable);

@@ -4,6 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "bye_fake.h"
 #include "bye_sniff.h"
 
 #ifdef __cplusplus
@@ -69,7 +70,8 @@ typedef enum {
     BYE_PART_SPLIT = 0,
     BYE_PART_DISORDER, /* the part leaves with ttl 1, so the kernel has to send it again */
     BYE_PART_OOB,      /* the part ends with an urgent byte that replaces the next one */
-    BYE_PART_DISOOB    /* both */
+    BYE_PART_DISOOB,   /* both */
+    BYE_PART_FAKE      /* a fake packet with the part's sequence numbers goes out first */
 } bye_part_mode_t;
 
 typedef struct {
@@ -113,11 +115,22 @@ typedef struct {
     uint8_t      tlsminor;     /* 0 leaves the version alone */
     uint32_t     proto;        /* BYE_PROTO_*, 0 for any */
     uint32_t     trigger;      /* BYE_TRIGGER_*: the failures that send a flow here */
+
+    /* fake packets, the options -t -n -l -O -Q -S of this group */
+    uint8_t      fake_ttl;     /* 0 for BYE_FAKE_TTL_DEFAULT */
+    char         fake_sni[BYE_FAKE_SNI_MAX]; /* empty for the default name */
+    char         fake_file[BYE_FAKE_SNI_MAX]; /* -l: a file name the daemon reads into fake_data */
+    uint8_t      fake_data[BYE_FAKE_DATA_MAX];
+    size_t       fake_data_len; /* 0 for the built-in hello or request */
+    int32_t      fake_offset;  /* -O: where in the fake the bytes are taken from */
+    uint32_t     fake_mods;    /* BYE_FAKE_MOD_* */
+    int          md5sig;       /* -S: the fake carries a tcp md5 option */
 } bye_desync_t;
 
 #define BYE_OP_TTL1 1u /* the segment leaves with ttl 1 */
 #define BYE_OP_OOB  2u /* the byte behind the segment is replaced by the urgent byte
                           and goes with it in one MSG_OOB send */
+#define BYE_OP_FAKE 4u /* a fake packet as long as the segment leaves just before it */
 
 typedef struct {
     size_t   off; /* into the plan's output buffer */
@@ -179,6 +192,15 @@ bye_desync_status_t bye_desync_parse(const char *spec, bye_desync_t *out,
    list one by one and its notes, -T and -g carry over */
 bye_desync_status_t bye_strategies_parse(const char *list, bye_strategies_t *out,
                                          char *error, size_t error_cap);
+
+/* 1 when a group asks for fake packets, so the daemon watches connections for them */
+int bye_strategies_use_fake(const bye_strategies_t *list);
+
+/* the bytes of one fake for a segment of `len` bytes: the group's data, or the
+   built-in hello (tls) or request, cut at the group's offset. `real` is the
+   whole first payload the app sent. returns the size, 0 for none */
+size_t bye_desync_fake(const bye_desync_t *group, int tls, const uint8_t *real, size_t real_len,
+                       size_t len, uint8_t *out, size_t out_cap);
 
 /* the next step of a failed flow. step j uses item[(start + j) % count], the
    flow began at step 0 and is on `attempt`. `kind` is one BYE_TRIGGER_* value.
