@@ -9,6 +9,7 @@
 
 /* the replaced strategies, newest first */
 + (NSArray *)history;
++ (void)forgetAll;
 + (void)remember:(NSString *)text;
 + (void)forget:(NSString *)text;
 

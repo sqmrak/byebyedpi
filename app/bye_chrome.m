@@ -15,6 +15,12 @@ static const CGFloat ByeButtonHeight = 30.0f;
 
 UIImage *ByeBarImage(CGFloat height) {
     static NSMutableDictionary *cache;
+    static NSUInteger generation;
+    if (generation != ByeThemeGeneration()) {
+        [cache release];
+        cache = nil;
+        generation = ByeThemeGeneration();
+    }
     if (!cache) cache = [[NSMutableDictionary alloc] init];
     NSNumber *key = [NSNumber numberWithFloat:(float)height];
     UIImage *hit = [cache objectForKey:key];
@@ -22,6 +28,14 @@ UIImage *ByeBarImage(CGFloat height) {
     CGRect rect = CGRectMake(0.0f, 0.0f, 1.0f, height);
     UIGraphicsBeginImageContextWithOptions(rect.size, YES, 0.0f);
     CGContextRef ctx = UIGraphicsGetCurrentContext();
+    if (ByeThemeModern()) {
+        /* a flat bar: one colour, and no rule under it, the bar's own shadow image is cleared */
+        ByeFillRule(rect, ByeColorBar());
+        UIImage *flat = [UIGraphicsGetImageFromCurrentImageContext() resizableImageWithCapInsets:UIEdgeInsetsZero];
+        UIGraphicsEndImageContext();
+        if (flat) [cache setObject:flat forKey:key];
+        return flat;
+    }
     const CGFloat colors[16] = { 0.46f, 0.62f, 0.82f, 1.0f,   0.27f, 0.43f, 0.67f, 1.0f,
                                  0.17f, 0.33f, 0.58f, 1.0f,   0.10f, 0.22f, 0.43f, 1.0f };
     const CGFloat stops[4] = { 0.0f, 0.5f, 0.5f, 1.0f };
@@ -44,16 +58,22 @@ static void ByeStyleBarAppearance(UINavigationBar *bar, UIImage *portrait, UIIma
     if (!appearanceClass || ![bar respondsToSelector:standard]) return;
     id appearance = [[[appearanceClass alloc] init] autorelease];
     [appearance performSelector:NSSelectorFromString(@"configureWithOpaqueBackground")];
-    [appearance performSelector:NSSelectorFromString(@"setBackgroundColor:") withObject:ByeRGB(0x1b3a66, 1.0f)];
+    [appearance performSelector:NSSelectorFromString(@"setBackgroundColor:") withObject:ByeColorBar()];
     [appearance performSelector:NSSelectorFromString(@"setBackgroundImage:") withObject:portrait];
     [appearance performSelector:NSSelectorFromString(@"setShadowColor:") withObject:nil];
-    /* the appearance takes the current attribute names only; NSShadow exists from ios 6 */
-    NSShadow *shadow = [[[NSClassFromString(@"NSShadow") alloc] init] autorelease];
-    [shadow setShadowColor:[UIColor colorWithWhite:0.0f alpha:0.5f]];
-    [shadow setShadowOffset:CGSizeMake(0.0f, -1.0f)];
-    NSDictionary *title = [NSDictionary dictionaryWithObjectsAndKeys:
-                           [UIColor whiteColor], @"NSColor", ByeFont(18.0f, YES), @"NSFont",
-                           shadow, @"NSShadow", nil];
+    NSDictionary *title;
+    if (ByeThemeModern()) {
+        title = [NSDictionary dictionaryWithObjectsAndKeys:
+                 ByeColorBarText(), @"NSColor", ByeFont(19.0f, NO), @"NSFont", nil];
+    } else {
+        /* the appearance takes the current attribute names only; NSShadow exists from ios 6 */
+        NSShadow *shadow = [[[NSClassFromString(@"NSShadow") alloc] init] autorelease];
+        [shadow setShadowColor:[UIColor colorWithWhite:0.0f alpha:0.5f]];
+        [shadow setShadowOffset:CGSizeMake(0.0f, -1.0f)];
+        title = [NSDictionary dictionaryWithObjectsAndKeys:
+                 [UIColor whiteColor], @"NSColor", ByeFont(18.0f, YES), @"NSFont",
+                 shadow, @"NSShadow", nil];
+    }
     [appearance performSelector:NSSelectorFromString(@"setTitleTextAttributes:") withObject:title];
     [bar performSelector:standard withObject:appearance];
     SEL edge = NSSelectorFromString(@"setScrollEdgeAppearance:");
@@ -67,18 +87,24 @@ static void ByeStyleBarAppearance(UINavigationBar *bar, UIImage *portrait, UIIma
 void ByeStyleNavigationBar(UINavigationBar *bar) {
     if (!bar) return;
     UIImage *portrait = ByeBarImage(44.0f);
-    NSDictionary *title = [NSDictionary dictionaryWithObjectsAndKeys:
-                           [UIColor whiteColor], UITextAttributeTextColor,
-                           [UIColor colorWithWhite:0.0f alpha:0.5f], UITextAttributeTextShadowColor,
-                           [NSValue valueWithUIOffset:UIOffsetMake(0.0f, -1.0f)], UITextAttributeTextShadowOffset,
-                           ByeFont(18.0f, YES), UITextAttributeFont, nil];
+    NSDictionary *title = ByeThemeModern()
+        ? [NSDictionary dictionaryWithObjectsAndKeys:
+           ByeColorBarText(), UITextAttributeTextColor,
+           [UIColor clearColor], UITextAttributeTextShadowColor,
+           [NSValue valueWithUIOffset:UIOffsetZero], UITextAttributeTextShadowOffset,
+           ByeFont(19.0f, NO), UITextAttributeFont, nil]
+        : [NSDictionary dictionaryWithObjectsAndKeys:
+           [UIColor whiteColor], UITextAttributeTextColor,
+           [UIColor colorWithWhite:0.0f alpha:0.5f], UITextAttributeTextShadowColor,
+           [NSValue valueWithUIOffset:UIOffsetMake(0.0f, -1.0f)], UITextAttributeTextShadowOffset,
+           ByeFont(18.0f, YES), UITextAttributeFont, nil];
     /* every screen restyles the bar as it appears, and ios 5 rebuilds the title on each
        assignment: doing it in the middle of a push drew the new title over the old one */
     if ([bar backgroundImageForBarMetrics:UIBarMetricsDefault] == portrait && [bar.titleTextAttributes isEqual:title])
         return;
     bar.barStyle = UIBarStyleDefault;
     bar.translucent = NO;
-    bar.tintColor = ByeRGB(0x1b3a66, 1.0f);
+    bar.tintColor = ByeColorBar();
     ByeStyleBarAppearance(bar, portrait, ByeBarImage(32.0f));
     /* the bar image carries its own dark line; the hairline ios 6 adds would double it */
     if ([bar respondsToSelector:@selector(setShadowImage:)])
@@ -137,7 +163,58 @@ static UIImage *ByeButtonImage(BOOL back, BOOL pressed) {
     return *slot;
 }
 
+/* the flat themes draw no bezel: a glyph or a word, and a chevron for the way back */
+static UIImage *ByeBackChevron(void) {
+    static UIImage *chevron;
+    if (chevron) return chevron;
+    UIGraphicsBeginImageContextWithOptions(CGSizeMake(12.0f, 20.0f), NO, 0.0f);
+    UIBezierPath *path = [UIBezierPath bezierPath];
+    [path moveToPoint:CGPointMake(10.0f, 2.0f)];
+    [path addLineToPoint:CGPointMake(2.5f, 10.0f)];
+    [path addLineToPoint:CGPointMake(10.0f, 18.0f)];
+    path.lineWidth = 2.4f;
+    path.lineCapStyle = kCGLineCapRound;
+    path.lineJoinStyle = kCGLineJoinRound;
+    [[UIColor whiteColor] setStroke];
+    [path stroke];
+    chevron = [UIGraphicsGetImageFromCurrentImageContext() retain];
+    UIGraphicsEndImageContext();
+    return chevron;
+}
+
+static UIBarButtonItem *ByeFlatBarItem(NSString *title, UIImage *glyph, BOOL back, id target, SEL action) {
+    UIButton *button = [UIButton buttonWithType:UIButtonTypeCustom];
+    UIFont *font = ByeFont(16.0f, NO);
+    CGFloat width;
+    if (glyph) {
+        [button setImage:glyph forState:UIControlStateNormal];
+        width = MAX(44.0f, glyph.size.width + 20.0f);
+    } else {
+        button.titleLabel.font = font;
+        button.titleLabel.lineBreakMode = NSLineBreakByClipping;
+        [button setTitle:title forState:UIControlStateNormal];
+        [button setTitleColor:ByeColorBarText() forState:UIControlStateNormal];
+        [button setTitleColor:[UIColor colorWithWhite:1.0f alpha:0.5f] forState:UIControlStateHighlighted];
+        CGFloat text = ceilf((float)ByeTextSize(title, font, 400.0f).width);
+        if (back) {
+            [button setImage:ByeBackChevron() forState:UIControlStateNormal];
+            button.imageEdgeInsets = UIEdgeInsetsMake(0.0f, -4.0f, 0.0f, 4.0f);
+            button.titleEdgeInsets = UIEdgeInsetsMake(0.0f, 2.0f, 0.0f, -2.0f);
+            width = MAX(44.0f, text + 12.0f + 14.0f);
+        } else {
+            width = MAX(44.0f, text + 16.0f);
+        }
+    }
+    button.adjustsImageWhenHighlighted = YES;
+    button.showsTouchWhenHighlighted = NO;
+    button.frame = CGRectMake(0.0f, 0.0f, width, 36.0f);
+    if (title.length) button.accessibilityLabel = title;
+    [button addTarget:target action:action forControlEvents:UIControlEventTouchUpInside];
+    return [[[UIBarButtonItem alloc] initWithCustomView:button] autorelease];
+}
+
 UIBarButtonItem *ByeBarItem(NSString *title, UIImage *glyph, BOOL back, id target, SEL action) {
+    if (ByeThemeModern()) return ByeFlatBarItem(title, glyph, back, target, action);
     UIButton *button = [UIButton buttonWithType:UIButtonTypeCustom];
     UIFont *font = ByeFont(12.0f, YES);
     CGFloat leftPad = back ? 15.0f : 10.0f, rightPad = 10.0f;
@@ -166,16 +243,22 @@ UIBarButtonItem *ByeBarItem(NSString *title, UIImage *glyph, BOOL back, id targe
 
 UIView *ByeDisclosure(void) {
     static UIImage *chevron;
+    static NSUInteger generation;
+    if (generation != ByeThemeGeneration()) {
+        [chevron release];
+        chevron = nil;
+        generation = ByeThemeGeneration();
+    }
     if (!chevron) {
         UIGraphicsBeginImageContextWithOptions(CGSizeMake(11.0f, 15.0f), NO, 0.0f);
         UIBezierPath *path = [UIBezierPath bezierPath];
         [path moveToPoint:CGPointMake(2.0f, 2.0f)];
         [path addLineToPoint:CGPointMake(8.0f, 7.5f)];
         [path addLineToPoint:CGPointMake(2.0f, 13.0f)];
-        path.lineWidth = 3.0f;
-        path.lineCapStyle = kCGLineCapSquare;
-        path.lineJoinStyle = kCGLineJoinMiter;
-        [[UIColor colorWithRed:0.55f green:0.64f blue:0.78f alpha:1.0f] setStroke];
+        path.lineWidth = ByeThemeModern() ? 2.0f : 3.0f;
+        path.lineCapStyle = ByeThemeModern() ? kCGLineCapRound : kCGLineCapSquare;
+        path.lineJoinStyle = ByeThemeModern() ? kCGLineJoinRound : kCGLineJoinMiter;
+        [(ByeThemeModern() ? ByeColorTextTertiary() : [UIColor colorWithRed:0.55f green:0.64f blue:0.78f alpha:1.0f]) setStroke];
         [path stroke];
         chevron = [UIGraphicsGetImageFromCurrentImageContext() retain];
         UIGraphicsEndImageContext();
@@ -185,6 +268,12 @@ UIView *ByeDisclosure(void) {
 
 UIView *ByeCheckmark(void) {
     static UIImage *check;
+    static NSUInteger generation;
+    if (generation != ByeThemeGeneration()) {
+        [check release];
+        check = nil;
+        generation = ByeThemeGeneration();
+    }
     if (!check) {
         UIGraphicsBeginImageContextWithOptions(CGSizeMake(16.0f, 14.0f), NO, 0.0f);
         UIBezierPath *path = [UIBezierPath bezierPath];
@@ -194,7 +283,7 @@ UIView *ByeCheckmark(void) {
         path.lineWidth = 3.0f;
         path.lineCapStyle = kCGLineCapRound;
         path.lineJoinStyle = kCGLineJoinRound;
-        [[UIColor colorWithRed:0.42f green:0.74f blue:1.0f alpha:1.0f] setStroke];
+        [(ByeThemeModern() ? ByeColorAccent() : [UIColor colorWithRed:0.42f green:0.74f blue:1.0f alpha:1.0f]) setStroke];
         [path stroke];
         check = [UIGraphicsGetImageFromCurrentImageContext() retain];
         UIGraphicsEndImageContext();
@@ -227,9 +316,9 @@ void ByeStyleTable(UITableView *table) {
 
 #pragma mark - grouped tables
 
-UIColor *ByeGroupedTextColor(void) { return [UIColor whiteColor]; }
+UIColor *ByeGroupedTextColor(void) { return ByeThemeModern() ? ByeColorText() : [UIColor whiteColor]; }
 UIColor *ByeGroupedValueColor(void) { return ByeColorValue(); }
-UIColor *ByeGroupedCaptionColor(void) { return ByeRGB(0x9db0ca, 1.0f); }
+UIColor *ByeGroupedCaptionColor(void) { return ByeThemeModern() ? ByeColorTextSecondary() : ByeRGB(0x9db0ca, 1.0f); }
 
 static BOOL ByeSystemInsetsGroups(void) {
     return ![UITableView instancesRespondToSelector:@selector(setSeparatorInset:)];
@@ -240,7 +329,26 @@ CGFloat ByeGroupedMargin(void) {
     return ByeIsPad() ? 45.0f : 10.0f;
 }
 
+/* a flat card: rounded where the group starts and ends, a hairline between rows */
+static void ByeDrawFlatSegment(CGRect bounds, BOOL first, BOOL last, BOOL selected) {
+    CGFloat radius = 14.0f;
+    UIRectCorner corners = (first ? UIRectCornerTopLeft | UIRectCornerTopRight : 0) |
+                           (last ? UIRectCornerBottomLeft | UIRectCornerBottomRight : 0);
+    UIBezierPath *shape = [UIBezierPath bezierPathWithRoundedRect:bounds byRoundingCorners:corners
+                                                      cornerRadii:CGSizeMake(radius, radius)];
+    [(selected ? ByeColorSurfacePressed() : ByeColorSurface()) setFill];
+    [shape fill];
+    if (!last) {
+        CGFloat rule = 1.0f / [UIScreen mainScreen].scale;
+        ByeFillRule(CGRectMake(16.0f, CGRectGetMaxY(bounds) - rule, bounds.size.width - 16.0f, rule), ByeColorSeparator());
+    }
+}
+
 static void ByeDrawGroupedSegment(CGRect bounds, BOOL first, BOOL last, BOOL selected) {
+    if (ByeThemeModern()) {
+        ByeDrawFlatSegment(bounds, first, last, selected);
+        return;
+    }
     CGContextRef ctx = UIGraphicsGetCurrentContext();
     CGFloat radius = 10.0f;
     /* a row below another lets its top rim fall outside, so the row above's bottom rim is the one separator */
@@ -302,11 +410,11 @@ void ByeStyleGroupedCell(UITableViewCell *cell, BOOL first, BOOL last) {
     cell.selectedBackgroundView = [[[ByeSegmentView alloc] initWithFirst:first last:last selected:YES] autorelease];
     cell.textLabel.backgroundColor = [UIColor clearColor];
     cell.textLabel.textColor = ByeGroupedTextColor();
-    cell.textLabel.highlightedTextColor = [UIColor whiteColor];
-    cell.textLabel.font = ByeFont(15.0f, YES);
+    cell.textLabel.highlightedTextColor = ByeColorOnSelected();
+    cell.textLabel.font = ByeFont(15.0f, !ByeThemeModern());
     cell.detailTextLabel.backgroundColor = [UIColor clearColor];
     cell.detailTextLabel.textColor = ByeGroupedValueColor();
-    cell.detailTextLabel.highlightedTextColor = [UIColor whiteColor];
+    cell.detailTextLabel.highlightedTextColor = ByeColorOnSelected();
     cell.detailTextLabel.font = ByeFont(15.0f, NO);
     cell.selectionStyle = UITableViewCellSelectionStyleBlue;
 }
@@ -327,8 +435,8 @@ static UILabel *ByeEmbossedLabel(CGFloat size, BOOL bold) {
     UILabel *label = [[[UILabel alloc] initWithFrame:CGRectZero] autorelease];
     label.backgroundColor = [UIColor clearColor];
     label.textColor = ByeGroupedCaptionColor();
-    label.shadowColor = [UIColor blackColor];
-    label.shadowOffset = CGSizeMake(0.0f, -1.0f);
+    label.shadowColor = ByeTextShadowColor();
+    label.shadowOffset = ByeThemeModern() ? CGSizeZero : CGSizeMake(0.0f, -1.0f);
     label.font = ByeFont(size, bold);
     return label;
 }
@@ -338,7 +446,9 @@ UIView *ByeGroupedHeader(NSString *title, CGFloat width) {
     header.backgroundColor = [UIColor clearColor];
     if (!title.length) return header;
     CGFloat inset = ByeGroupedTextInset();
-    UILabel *label = ByeEmbossedLabel(15.0f, YES);
+    UILabel *label = ByeEmbossedLabel(ByeThemeModern() ? 14.0f : 15.0f, YES);
+    /* the flat themes colour the title like the android app's section headers */
+    if (ByeThemeModern()) label.textColor = ByeColorValue();
     label.frame = CGRectMake(inset, 16.0f, MAX(0.0f, width - inset * 2.0f), 22.0f);
     label.autoresizingMask = UIViewAutoresizingFlexibleWidth;
     label.text = title;
@@ -370,7 +480,11 @@ UIView *ByeGroupedFooter(NSString *text, CGFloat width) {
 
 #pragma mark - switch
 
-static const CGFloat ByeSwitchWidth = 79.0f, ByeSwitchHeight = 27.0f;
+/* the flat switch is the size of the system one of ios 7 and later */
+static CGFloat ByeSwitchWidthNow(void) { return ByeThemeModern() ? 51.0f : 79.0f; }
+static CGFloat ByeSwitchHeightNow(void) { return ByeThemeModern() ? 31.0f : 27.0f; }
+#define ByeSwitchWidth ByeSwitchWidthNow()
+#define ByeSwitchHeight ByeSwitchHeightNow()
 
 @interface ByeSwitch ()
 - (UIView *)strip;
@@ -384,13 +498,25 @@ static const CGFloat ByeSwitchWidth = 79.0f, ByeSwitchHeight = 27.0f;
 static UIImage *ByeSwitchStrip(void) {
     static UIImage *strip;
     static BOOL russian;
-    if (strip && russian == ByeLanguageIsRussian()) return strip;
+    static NSUInteger generation;
+    if (strip && russian == ByeLanguageIsRussian() && generation == ByeThemeGeneration()) return strip;
     [strip release];
     russian = ByeLanguageIsRussian();
+    generation = ByeThemeGeneration();
     CGFloat w = ByeSwitchWidth, h = ByeSwitchHeight, d = h, side = w - d * 0.5f;
     CGSize size = CGSizeMake(side * 2.0f, h);
     UIGraphicsBeginImageContextWithOptions(size, YES, 0.0f);
     CGContextRef ctx = UIGraphicsGetCurrentContext();
+    if (ByeThemeModern()) {
+        /* the left half shows when the switch is on, the right one when it is off */
+        ByeFillRule(CGRectMake(0.0f, 0.0f, side, h), ByeColorAccent());
+        ByeFillRule(CGRectMake(side, 0.0f, side, h),
+                    ByeThemeBoykisser() ? (ByeThemeIsLight() ? ByeRGB(0xd1b8c7, 1.0f) : ByeRGB(0x6e4f61, 1.0f))
+                                        : (ByeThemeIsLight() ? ByeRGB(0xc9ccd6, 1.0f) : ByeRGB(0x3a3f4d, 1.0f)));
+        strip = [UIGraphicsGetImageFromCurrentImageContext() retain];
+        UIGraphicsEndImageContext();
+        return strip;
+    }
     const CGFloat blue[12] = { 0.16f, 0.45f, 0.90f, 1.0f,  0.25f, 0.56f, 0.97f, 1.0f,  0.42f, 0.70f, 1.0f, 1.0f };
     const CGFloat grey[12] = { 0.80f, 0.80f, 0.80f, 1.0f,  0.93f, 0.93f, 0.93f, 1.0f,  0.99f, 0.99f, 0.99f, 1.0f };
     CGContextSaveGState(ctx);
@@ -421,10 +547,22 @@ static UIImage *ByeSwitchStrip(void) {
 
 static UIImage *ByeSwitchKnob(void) {
     static UIImage *knob;
-    if (knob) return knob;
+    static NSUInteger generation;
+    if (knob && generation == ByeThemeGeneration()) return knob;
+    [knob release];
+    generation = ByeThemeGeneration();
     CGFloat d = ByeSwitchHeight;
     UIGraphicsBeginImageContextWithOptions(CGSizeMake(d, d), NO, 0.0f);
     CGContextRef ctx = UIGraphicsGetCurrentContext();
+    if (ByeThemeModern()) {
+        CGRect disc = CGRectInset(CGRectMake(0.0f, 0.0f, d, d), 2.5f, 2.5f);
+        CGContextSetShadowWithColor(ctx, CGSizeMake(0.0f, 1.0f), 2.0f, [UIColor colorWithWhite:0.0f alpha:0.35f].CGColor);
+        [[UIColor whiteColor] setFill];
+        CGContextFillEllipseInRect(ctx, disc);
+        knob = [UIGraphicsGetImageFromCurrentImageContext() retain];
+        UIGraphicsEndImageContext();
+        return knob;
+    }
     CGRect disc = CGRectMake(0.5f, 0.5f, d - 1.0f, d - 1.0f);
     CGContextSaveGState(ctx);
     CGContextAddEllipseInRect(ctx, disc);
@@ -479,9 +617,11 @@ static UIImage *ByeSwitchFrame(void) {
     knob.tag = 3;
     [window addSubview:knob];
     [self addSubview:window];
-    UIImageView *rim = [[[UIImageView alloc] initWithImage:ByeSwitchFrame()] autorelease];
-    rim.userInteractionEnabled = NO;
-    [self addSubview:rim];
+    if (!ByeThemeModern()) {
+        UIImageView *rim = [[[UIImageView alloc] initWithImage:ByeSwitchFrame()] autorelease];
+        rim.userInteractionEnabled = NO;
+        [self addSubview:rim];
+    }
     [self placeKnob:0.0f];
     self.isAccessibilityElement = YES;
     return self;
@@ -578,7 +718,38 @@ static UIImage *ByeSwitchFrame(void) {
 
 #pragma mark - glossy button
 
+/* a flat button: one colour and rounded ends, darker while it is pressed */
+static UIImage *ByeFlatButtonImage(ByeGlossKind kind, BOOL pressed) {
+    static UIImage *images[6];
+    static NSUInteger generation;
+    if (generation != ByeThemeGeneration()) {
+        for (int i = 0; i < 6; ++i) {
+            [images[i] release];
+            images[i] = nil;
+        }
+        generation = ByeThemeGeneration();
+    }
+    UIImage **slot = &images[(int)kind * 2 + (pressed ? 1 : 0)];
+    if (*slot) return *slot;
+    CGFloat radius = 12.0f, height = 44.0f;
+    CGSize size = CGSizeMake(radius * 2.0f + 1.0f, height);
+    UIGraphicsBeginImageContextWithOptions(size, NO, 0.0f);
+    UIColor *fill = kind == ByeGlossBlue ? ByeColorAccent()
+                  : kind == ByeGlossRed ? ByeRGB(0xd32f2f, 1.0f) : ByeColorSurfacePressed();
+    [fill setFill];
+    [[UIBezierPath bezierPathWithRoundedRect:CGRectMake(0.0f, 0.0f, size.width, size.height) cornerRadius:radius] fill];
+    if (pressed) {
+        [[UIColor colorWithWhite:0.0f alpha:0.25f] setFill];
+        [[UIBezierPath bezierPathWithRoundedRect:CGRectMake(0.0f, 0.0f, size.width, size.height) cornerRadius:radius] fill];
+    }
+    UIImage *image = UIGraphicsGetImageFromCurrentImageContext();
+    UIGraphicsEndImageContext();
+    *slot = [[image resizableImageWithCapInsets:UIEdgeInsetsMake(0.0f, radius, 0.0f, radius)] retain];
+    return *slot;
+}
+
 static UIImage *ByeGlossImage(ByeGlossKind kind, BOOL pressed) {
+    if (ByeThemeModern()) return ByeFlatButtonImage(kind, pressed);
     static UIImage *images[6];
     UIImage **slot = &images[(int)kind * 2 + (pressed ? 1 : 0)];
     if (*slot) return *slot;
@@ -619,12 +790,13 @@ static UIImage *ByeGlossImage(ByeGlossKind kind, BOOL pressed) {
     if (!self) return nil;
     self.adjustsImageWhenHighlighted = NO;
     self.titleLabel.font = ByeFont(16.0f, YES);
-    self.titleLabel.shadowOffset = CGSizeMake(0.0f, -1.0f);
+    self.titleLabel.shadowOffset = ByeThemeModern() ? CGSizeZero : CGSizeMake(0.0f, -1.0f);
     self.titleLabel.lineBreakMode = NSLineBreakByClipping;
     self.titleLabel.adjustsFontSizeToFitWidth = YES;
     [self setTitle:title forState:UIControlStateNormal];
     [self setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-    [self setTitleShadowColor:[UIColor colorWithWhite:0.0f alpha:0.55f] forState:UIControlStateNormal];
+    [self setTitleShadowColor:ByeThemeModern() ? [UIColor clearColor] : [UIColor colorWithWhite:0.0f alpha:0.55f]
+                     forState:UIControlStateNormal];
     [self setTitleColor:[UIColor colorWithWhite:1.0f alpha:0.45f] forState:UIControlStateDisabled];
     [self setBackgroundImage:ByeGlossImage(ByeGlossGrey, NO) forState:UIControlStateDisabled];
     [self setKind:kind];
@@ -633,6 +805,9 @@ static UIImage *ByeGlossImage(ByeGlossKind kind, BOOL pressed) {
 
 - (void)setKind:(ByeGlossKind)kind {
     _kind = kind;
+    /* a grey button of the light theme is pale, so its words are dark */
+    [self setTitleColor:(ByeThemeModern() && kind == ByeGlossGrey) ? ByeColorText() : [UIColor whiteColor]
+               forState:UIControlStateNormal];
     [self setBackgroundImage:ByeGlossImage(kind, NO) forState:UIControlStateNormal];
     [self setBackgroundImage:ByeGlossImage(kind, YES) forState:UIControlStateHighlighted];
 }
@@ -679,6 +854,36 @@ static UIImage *ByeGlossImage(ByeGlossKind kind, BOOL pressed) {
     if (d < 40.0f) return;
     CGRect sq = CGRectMake(floorf((float)(CGRectGetMidX(b) - d * 0.5f)), floorf((float)(CGRectGetMidY(b) - d * 0.5f)), d, d);
     BOOL pressed = self.highlighted;
+
+    if (ByeThemeModern()) {
+        /* a flat disc in the colour of the state, with a soft shadow under it */
+        static const unsigned states[4] = { 0, 0xffa726, 0x4caf50, 0xe53935 };
+        UIColor *fill = _powerState == ByePowerOff ? ByeColorAccent() : ByeRGB(states[_powerState], 1.0f);
+        if (ByeThemeBoykisser()) {
+            /* pink means connected, as in senko, so the idle disc is grey and only a failure stays red */
+            if (_powerState == ByePowerOff) fill = ByeRGB(ByeThemeIsLight() ? 0xd1b8c7 : 0x6e4f61, 1.0f);
+            else if (_powerState == ByePowerBusy) fill = ByeRGB(0xff9acb, 1.0f);
+            else if (_powerState == ByePowerOn) fill = ByeColorAccent();
+        }
+        CGRect disc = CGRectInset(sq, d * 0.04f, d * 0.04f);
+        if (pressed) disc = CGRectInset(disc, d * 0.012f, d * 0.012f);
+        CGContextSaveGState(ctx);
+        CGContextSetShadowWithColor(ctx, CGSizeMake(0.0f, 3.0f), 8.0f,
+                                    [UIColor colorWithWhite:0.0f alpha:ByeThemeIsLight() ? 0.28f : 0.6f].CGColor);
+        [fill setFill];
+        CGContextFillEllipseInRect(ctx, disc);
+        CGContextRestoreGState(ctx);
+        if (pressed) {
+            [[UIColor colorWithWhite:0.0f alpha:0.2f] setFill];
+            CGContextFillEllipseInRect(ctx, disc);
+        }
+        CGFloat glyphSize = floorf((float)(disc.size.width * 0.38f));
+        UIImage *glyph = ByeIcon(@"power", glyphSize, [UIColor whiteColor]);
+        CGContextSetAlpha(ctx, self.enabled ? 1.0f : 0.5f);
+        [glyph drawInRect:CGRectMake(CGRectGetMidX(disc) - glyphSize * 0.5f, CGRectGetMidY(disc) - glyphSize * 0.5f,
+                                     glyphSize, glyphSize)];
+        return;
+    }
 
     CGContextSaveGState(ctx);
     CGContextSetShadowWithColor(ctx, CGSizeMake(0.0f, 4.0f), 10.0f, [UIColor colorWithWhite:0.0f alpha:0.75f].CGColor);
@@ -788,6 +993,21 @@ static UIImage *ByeGlossImage(ByeGlossKind kind, BOOL pressed) {
     [self setNeedsDisplay];
 }
 
+- (CGFloat)fitSizeForTileWidth:(CGFloat)width {
+    CGFloat room = width - 4.0f - 8.0f - 2.0f;
+    for (CGFloat size = 15.0f; size > 9.0f; size -= 0.5f) {
+        UIFont *font = ByeFont(size, NO);
+        if (ByeTextSize(_title, font, 4000.0f).width <= room) return size;
+    }
+    return 9.0f;
+}
+
+- (void)setTitleSize:(CGFloat)size {
+    if (size == _titleSize) return;
+    _titleSize = size;
+    [self setNeedsDisplay];
+}
+
 - (void)setHighlighted:(BOOL)highlighted {
     if (highlighted == self.highlighted) return;
     [super setHighlighted:highlighted];
@@ -800,6 +1020,21 @@ static UIImage *ByeGlossImage(ByeGlossKind kind, BOOL pressed) {
     CGRect b = CGRectInset(self.bounds, 2.0f, 2.0f);
     BOOL pressed = self.highlighted;
     CGFloat radius = 16.0f;
+
+    if (ByeThemeModern()) {
+        /* a card with the accent glyph over the title, like the tiles of the android app */
+        [(pressed ? ByeColorSurfacePressed() : ByeColorSurface()) setFill];
+        [[UIBezierPath bezierPathWithRoundedRect:b cornerRadius:radius] fill];
+        CGFloat flatGlyph = MIN(40.0f, floorf((float)(b.size.height * 0.36f)));
+        UIImage *flat = ByeIcon(_glyph, flatGlyph, ByeColorAccent());
+        [flat drawInRect:CGRectMake(CGRectGetMidX(b) - flatGlyph * 0.5f, b.origin.y + b.size.height * 0.17f,
+                                    flatGlyph, flatGlyph)];
+        CGRect box = CGRectMake(b.origin.x + 4.0f, b.origin.y + b.size.height - 32.0f, b.size.width - 8.0f, 22.0f);
+        UIFont *face = _titleSize > 0.0f ? ByeFont(_titleSize, NO) : ByeFitFont(_title, 15.0f, 9.0f, NO, box.size.width - 2.0f, 1);
+        [ByeColorText() set];
+        [_title drawInRect:box withFont:face lineBreakMode:NSLineBreakByTruncatingTail alignment:NSTextAlignmentCenter];
+        return;
+    }
 
     CGContextSaveGState(ctx);
     CGContextSetShadowWithColor(ctx, CGSizeMake(0.0f, 2.0f), 5.0f, [UIColor colorWithWhite:0.0f alpha:0.7f].CGColor);
@@ -873,6 +1108,18 @@ static UIImage *ByeGlossImage(ByeGlossKind kind, BOOL pressed) {
     CGContextRef ctx = UIGraphicsGetCurrentContext();
     CGRect b = CGRectInset(self.bounds, 0.5f, 0.5f);
     CGFloat radius = b.size.height * 0.5f;
+    if (ByeThemeModern()) {
+        [ByeColorSurface() setFill];
+        [[UIBezierPath bezierPathWithRoundedRect:b cornerRadius:radius] fill];
+        if (!_text.length) return;
+        UIFont *mono = [UIFont fontWithName:@"Courier" size:ByeIsPad() ? 14.0f : 12.0f];
+        if (!mono) mono = ByeFont(12.0f, NO);
+        [ByeColorText() set];
+        CGFloat line = floorf((float)(CGRectGetMidY(b) - mono.lineHeight * 0.5f));
+        [_text drawInRect:CGRectMake(b.origin.x + radius, line, b.size.width - radius * 2.0f, mono.lineHeight)
+                 withFont:mono lineBreakMode:NSLineBreakByTruncatingTail alignment:NSTextAlignmentCenter];
+        return;
+    }
     UIBezierPath *shape = [UIBezierPath bezierPathWithRoundedRect:b cornerRadius:radius];
     [[UIColor colorWithWhite:1.0f alpha:0.16f] setStroke];
     [[UIBezierPath bezierPathWithRoundedRect:CGRectOffset(b, 0.0f, 1.0f) cornerRadius:radius] stroke];
@@ -925,6 +1172,16 @@ static UIImage *ByeGlossImage(ByeGlossKind kind, BOOL pressed) {
     CGContextRef ctx = UIGraphicsGetCurrentContext();
     CGRect b = CGRectInset(self.bounds, 0.5f, 0.5f);
     CGFloat radius = b.size.height * 0.5f;
+    if (ByeThemeModern()) {
+        [ByeColorSurfacePressed() setFill];
+        [[UIBezierPath bezierPathWithRoundedRect:b cornerRadius:radius] fill];
+        if (_progress > 0.0f) {
+            CGRect fill = CGRectMake(b.origin.x, b.origin.y, MAX(b.size.height, b.size.width * _progress), b.size.height);
+            [ByeColorAccent() setFill];
+            [[UIBezierPath bezierPathWithRoundedRect:fill cornerRadius:radius] fill];
+        }
+        return;
+    }
     UIBezierPath *track = [UIBezierPath bezierPathWithRoundedRect:b cornerRadius:radius];
     CGContextSaveGState(ctx);
     [track addClip];

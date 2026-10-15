@@ -30,6 +30,9 @@ typedef enum {
 /* the bundled lists by title, then the user's in the order they were made */
 + (NSArray *)all;
 
+/* clears both choices, the user's own lists stay */
++ (void)resetSelections;
+
 + (BOOL)isSelected:(ByeList *)list for:(ByeListsPurpose)purpose;
 + (void)setSelected:(BOOL)selected list:(ByeList *)list for:(ByeListsPurpose)purpose;
 

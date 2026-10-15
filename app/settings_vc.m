@@ -11,6 +11,19 @@
 #import "probe_vc.h"
 
 static NSString * const ByeConnectOnOpenKey = @"ByeConnectOnOpen";
+static NSString * const ByeSettingsGenerationKey = @"ByeSettingsGeneration";
+/* grows when an old choice must not survive an upgrade */
+static const NSInteger ByeSettingsGeneration = 1;
+
+void ByeResetSavedSettings(void) {
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    if ([defaults integerForKey:ByeSettingsGenerationKey] >= ByeSettingsGeneration) return;
+    [ByeLists resetSelections];
+    [ByeStrategies forgetAll];
+    [defaults removeObjectForKey:ByeConnectOnOpenKey];
+    [defaults setInteger:ByeSettingsGeneration forKey:ByeSettingsGenerationKey];
+    [defaults synchronize];
+}
 
 @implementation SettingsVC
 
@@ -58,6 +71,18 @@ static NSString * const ByeConnectOnOpenKey = @"ByeConnectOnOpen";
     }
 }
 
+- (NSString *)themeName {
+    switch (ByeThemeGetStyle()) {
+    case ByeThemeStyleClassic: return ByeL(@"Classic");
+    case ByeThemeStyleBoykisser: return @"Boykisser";
+    default: return ByeL(@"Modern");
+    }
+}
+
+- (NSString *)appearanceName {
+    return ByeAppearanceGet() == ByeAppearanceLight ? ByeL(@"Light") : ByeL(@"Dark");
+}
+
 - (NSArray *)buildSections {
     ByeDaemon *daemon = [ByeDaemon shared];
     NSString *poolText = [self configValue:@"telegram.pool"];
@@ -68,7 +93,18 @@ static NSString * const ByeConnectOnOpenKey = @"ByeConnectOnOpen";
 
     ByeRow *language = [ByeRow rowWithKind:ByeRowValue title:ByeL(@"Language") detail:[self languageName] ident:@"language"];
     language.accessory = ByeAccessoryDisclosure;
+    ByeRow *theme = [ByeRow rowWithKind:ByeRowValue title:ByeL(@"Theme") detail:[self themeName] ident:@"theme"];
+    theme.accessory = ByeAccessoryDisclosure;
+    /* the flat themes have a light and a dark appearance, so the classic one has no row for it */
+    NSMutableArray *generalRows = [NSMutableArray arrayWithObjects:language, theme, nil];
+    if (ByeThemeGetStyle() != ByeThemeStyleClassic) {
+        ByeRow *appearance = [ByeRow rowWithKind:ByeRowValue title:ByeL(@"Appearance") detail:[self appearanceName]
+                                           ident:@"appearance"];
+        appearance.accessory = ByeAccessoryDisclosure;
+        [generalRows addObject:appearance];
+    }
     ByeRow *connect = [ByeRow rowWithKind:ByeRowSwitch title:ByeL(@"Connect when the app opens") detail:nil ident:@"connect"];
+    [generalRows addObject:connect];
     connect.on = [[NSUserDefaults standardUserDefaults] boolForKey:ByeConnectOnOpenKey];
     ByeRow *autostart = [ByeRow rowWithKind:ByeRowSwitch title:ByeL(@"Connect when the device starts") detail:nil ident:@"autostart"];
     autostart.on = [self configOn:@"autostart"];
@@ -136,7 +172,7 @@ static NSString * const ByeConnectOnOpenKey = @"ByeConnectOnOpen";
     about.accessory = ByeAccessoryDisclosure;
 
     return [NSArray arrayWithObjects:
-        [ByeSection sectionWithTitle:ByeL(@"General") footer:nil rows:[NSArray arrayWithObjects:language, connect, nil]],
+        [ByeSection sectionWithTitle:ByeL(@"General") footer:nil rows:generalRows],
         [ByeSection sectionWithTitle:ByeL(@"Automation") footer:nil rows:[NSArray arrayWithObject:autostart]],
         [ByeSection sectionWithTitle:@"ByeDPI" footer:ByeL(@"The lists decide which sites the bypass applies to: only the listed ones, or all the others.")
                                 rows:[NSArray arrayWithObjects:strategies, probe, lists, mode, nil]],
@@ -190,6 +226,18 @@ static NSString * const ByeConnectOnOpenKey = @"ByeConnectOnOpen";
             ByeSetLanguageSetting((ByeLanguage)index);
             self.title = ByeL(@"Settings");
             [self reloadForm];
+        });
+    } else if ([ident isEqualToString:@"theme"]) {
+        ByeChoose(self, ByeL(@"Theme"), [NSArray arrayWithObjects:ByeL(@"Classic"), ByeL(@"Modern"), @"Boykisser (meeeeeow :3)", nil], ^(NSInteger index) {
+            if (index < 0 || index == (NSInteger)ByeThemeGetStyle()) return;
+            /* the app builds its screens again, and opens settings in the new theme */
+            ByeThemeSetStyle((ByeThemeStyle)index);
+        });
+    } else if ([ident isEqualToString:@"appearance"]) {
+        ByeChoose(self, ByeL(@"Appearance"), [NSArray arrayWithObjects:ByeL(@"Light"), ByeL(@"Dark"), nil],
+                  ^(NSInteger index) {
+            if (index < 0 || index == (NSInteger)ByeAppearanceGet()) return;
+            ByeAppearanceSet((ByeAppearance)index);
         });
     } else if ([ident isEqualToString:@"strategies"]) {
         [self.navigationController pushViewController:[[[EditorVC alloc] init] autorelease] animated:YES];

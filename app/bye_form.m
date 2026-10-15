@@ -376,14 +376,14 @@ static ByeRowGeometry ByeRowGeometryFor(ByeRowKind kind, CGFloat glyphSize, NSSt
     cell->titleLabel.font = [self titleFontForRow:row];
     cell->titleLabel.textColor = row.titleColor ? row.titleColor
                                : (row.kind == ByeRowButton ? ByeColorValue() : ByeGroupedTextColor());
-    cell->titleLabel.highlightedTextColor = [UIColor whiteColor];
+    cell->titleLabel.highlightedTextColor = ByeColorOnSelected();
     cell->detailLabel.text = row.detail;
     cell->detailLabel.font = [self detailFontForRow:row];
     cell->detailLabel.textAlignment = row.kind == ByeRowValue ? NSTextAlignmentRight : NSTextAlignmentLeft;
     cell->detailLabel.textColor = row.detailColor ? row.detailColor
                                 : (row.kind == ByeRowStacked ? ByeGroupedCaptionColor() : ByeGroupedValueColor());
-    cell->detailLabel.highlightedTextColor = [UIColor whiteColor];
-    UIImage *glyph = row.image ? row.image : (row.glyph ? ByeIcon(row.glyph, 22.0f, ByeRGB(0xd6e3f5, 1.0f)) : nil);
+    cell->detailLabel.highlightedTextColor = ByeColorOnSelected();
+    UIImage *glyph = row.image ? row.image : (row.glyph ? ByeIcon(row.glyph, 22.0f, ByeColorIcon()) : nil);
     cell->glyphView.image = glyph;
     BOOL face = row.image != nil;
     cell->glyphSize = face ? 36.0f : 24.0f;

@@ -1,4 +1,5 @@
 #import <UIKit/UIKit.h>
+#include <objc/message.h>
 #include <signal.h>
 
 #import "bye_chrome.h"
@@ -6,6 +7,7 @@
 #import "bye_trace.h"
 #import "bye_theme.h"
 #import "main_vc.h"
+#import "settings_vc.h"
 
 @interface UIViewController (ByeRotation)
 @end
@@ -54,7 +56,8 @@
 
 - (void)loadView {
     UIView *view = [[[UIView alloc] initWithFrame:[[UIScreen mainScreen] bounds]] autorelease];
-    view.backgroundColor = [UIColor blackColor];
+    /* the strip under the status bar has the colour of the bar in the flat themes */
+    view.backgroundColor = ByeThemeModern() ? ByeColorBar() : [UIColor blackColor];
     view.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     self.view = view;
 }
@@ -87,12 +90,30 @@
     (void)application;
     (void)options;
     ByeTrace(@"did finish launching");
+    ByeResetSavedSettings();
     /* a daemon that goes away must not take the app down with a write signal */
     signal(SIGPIPE, SIG_IGN);
     _window = [[UIWindow alloc] initWithFrame:[[UIScreen mainScreen] bounds]];
-    _window.backgroundColor = [UIColor blackColor];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(themeChanged:)
+                                                 name:ByeThemeDidChangeNotification object:nil];
+    [self buildInterfaceWithSettings:NO];
+    [_window makeKeyAndVisible];
+    ByeTrace(@"window is up");
+    [[ByeDaemon shared] startPolling];
+    return YES;
+}
+
+/* every screen draws itself from the theme when it is built, so a new theme means new screens.
+   the settings screen is opened again when the change came from it */
+- (void)buildInterfaceWithSettings:(BOOL)settings {
+    SEL override = NSSelectorFromString(@"setOverrideUserInterfaceStyle:");
+    /* ios 13 draws alerts and keyboards by the window's style, which has to follow the theme */
+    if ([_window respondsToSelector:override])
+        ((void (*)(id, SEL, NSInteger))objc_msgSend)(_window, override, ByeThemeInterfaceStyle());
+    _window.backgroundColor = ByeThemeModern() ? ByeColorBar() : [UIColor blackColor];
     MainVC *main = [[[MainVC alloc] init] autorelease];
     ByeNavigationController *navigation = [[[ByeNavigationController alloc] initWithRootViewController:main] autorelease];
+    if (settings) [navigation pushViewController:[[[SettingsVC alloc] init] autorelease] animated:NO];
 #if __IPHONE_OS_VERSION_MAX_ALLOWED >= 70000
     _window.rootViewController = [[[ByeRootController alloc] initWithNavigation:navigation] autorelease];
 #else
@@ -100,10 +121,12 @@
        a container root stops the ipad from turning the interface on ios 10 */
     _window.rootViewController = navigation;
 #endif
-    [_window makeKeyAndVisible];
-    ByeTrace(@"window is up");
-    [[ByeDaemon shared] startPolling];
-    return YES;
+}
+
+- (void)themeChanged:(NSNotification *)note {
+    (void)note;
+    /* the action sheet that chose the theme is still on its way out */
+    dispatch_async(dispatch_get_main_queue(), ^{ [self buildInterfaceWithSettings:YES]; });
 }
 
 - (void)applicationDidBecomeActive:(UIApplication *)application {
@@ -117,6 +140,7 @@
 }
 
 - (void)dealloc {
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
     [_window release];
     [super dealloc];
 }

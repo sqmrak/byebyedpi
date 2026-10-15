@@ -13,7 +13,7 @@
 
 static NSString * const ByeAboutThanks =
     @"@fly1ngangel, @inraxx, @anazerka, @Lineysom, @menstry, @CookieValerka, "
-    @"@not_a_modder, @s3dativee, @Vladus324, @shizotoaster";
+    @"@not_a_modder, @s3dativee, @Vladus324, @shizotoaster, @ningmeng";
 
 static NSString *ByeAboutModel(void) {
     char machine[64];
@@ -66,6 +66,17 @@ static NSString *ByeAboutVersion(void) {
     (void)dirty;
     CGContextRef ctx = UIGraphicsGetCurrentContext();
     CGRect b = CGRectInset(self.bounds, 0.5f, 0.5f);
+    if (ByeThemeModern()) {
+        [ByeColorSurface() setFill];
+        [[UIBezierPath bezierPathWithRoundedRect:b cornerRadius:14.0f] fill];
+        [ByeColorTextSecondary() set];
+        [caption drawInRect:CGRectMake(8.0f, 9.0f, b.size.width - 16.0f, 16.0f) withFont:ByeFont(12.0f, NO)
+              lineBreakMode:NSLineBreakByClipping alignment:NSTextAlignmentCenter];
+        [ByeColorText() set];
+        [value drawInRect:CGRectMake(8.0f, 28.0f, b.size.width - 16.0f, 24.0f) withFont:ByeFont(17.0f, YES)
+            lineBreakMode:NSLineBreakByClipping alignment:NSTextAlignmentCenter];
+        return;
+    }
     UIBezierPath *shape = [UIBezierPath bezierPathWithRoundedRect:b cornerRadius:10.0f];
     [[UIColor colorWithWhite:1.0f alpha:0.14f] setStroke];
     [[UIBezierPath bezierPathWithRoundedRect:CGRectOffset(b, 0.0f, 1.0f) cornerRadius:10.0f] stroke];
@@ -108,8 +119,8 @@ static UILabel *ByeHeroLabel(UIView *host, UIFont *font, UIColor *color) {
     label.textAlignment = NSTextAlignmentCenter;
     label.lineBreakMode = NSLineBreakByClipping;
     label.adjustsFontSizeToFitWidth = YES;
-    label.shadowColor = [UIColor blackColor];
-    label.shadowOffset = CGSizeMake(0.0f, -1.0f);
+    label.shadowColor = ByeTextShadowColor();
+    label.shadowOffset = ByeThemeModern() ? CGSizeZero : CGSizeMake(0.0f, -1.0f);
     [host addSubview:label];
     return label;
 }
@@ -128,15 +139,15 @@ static UILabel *ByeHeroLabel(UIView *host, UIFont *font, UIColor *color) {
     /* a separate view keeps the shadow outside the clipped icon */
     UIView *shadow = [[[UIView alloc] initWithFrame:CGRectZero] autorelease];
     shadow.tag = 7;
-    shadow.backgroundColor = ByeRGB(0x0e1b2d, 1.0f);
+    shadow.backgroundColor = ByeThemeModern() ? ByeColorSurface() : ByeRGB(0x0e1b2d, 1.0f);
     shadow.layer.cornerRadius = 16.0f;
     shadow.layer.shadowColor = [UIColor blackColor].CGColor;
-    shadow.layer.shadowOpacity = 0.7f;
+    shadow.layer.shadowOpacity = ByeThemeModern() ? 0.3f : 0.7f;
     shadow.layer.shadowRadius = 6.0f;
     shadow.layer.shadowOffset = CGSizeMake(0.0f, 3.0f);
     [self addSubview:shadow];
     [self addSubview:icon];
-    name = [ByeHeroLabel(self, ByeFont(30.0f, YES), [UIColor whiteColor]) retain];
+    name = [ByeHeroLabel(self, ByeFont(30.0f, YES), ByeColorText()) retain];
     name.text = @"ByeByeDPI";
     tagline = [ByeHeroLabel(self, ByeFont(14.0f, NO), ByeGroupedCaptionColor()) retain];
     versionPlate = [[ByeAboutPlate alloc] initWithFrame:CGRectZero];

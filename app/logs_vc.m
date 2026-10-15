@@ -45,9 +45,9 @@ static ByeRow *ByeCheck(NSString *title, NSString *detail, UIColor *color) {
     return row;
 }
 
-static UIColor *ByeGood(void) { return ByeRGB(0x7fe08a, 1.0f); }
-static UIColor *ByeBad(void) { return ByeRGB(0xf2a39c, 1.0f); }
-static UIColor *ByeWarn(void) { return ByeRGB(0xf2c879, 1.0f); }
+static UIColor *ByeGood(void) { return ByeColorGood(); }
+static UIColor *ByeBad(void) { return ByeColorBad(); }
+static UIColor *ByeWarn(void) { return ByeColorWarn(); }
 
 static NSArray *ByeChecks(void) {
     ByeDaemon *daemon = [ByeDaemon shared];
@@ -62,6 +62,9 @@ static NSArray *ByeChecks(void) {
         [rows addObject:why];
         return rows;
     }
+    NSString *tlsError = [daemon.status objectForKey:@"tls.error"];
+    if (tlsError.length)
+        [rows addObject:ByeCheck(@"TLS", tlsError, ByeBad())];
     NSString *interface = [daemon.status objectForKey:@"interface"];
     if (daemon.state == ByeDaemonRunning) {
         [rows addObject:ByeCheck(ByeL(@"Tunnel"), ByeLF(@"up on %@", interface.length ? interface : @"utun"), ByeGood())];
@@ -75,7 +78,7 @@ static NSArray *ByeChecks(void) {
         }
     } else {
         NSString *error = [daemon errorText];
-        [rows addObject:ByeCheck(ByeL(@"Tunnel"), ByeL(@"down"), error.length ? ByeBad() : ByeRGB(0xa9b8cd, 1.0f))];
+        [rows addObject:ByeCheck(ByeL(@"Tunnel"), ByeL(@"down"), error.length ? ByeBad() : ByeColorTextSecondary())];
         if (error.length) {
             ByeRow *why = [ByeRow rowWithKind:ByeRowStacked title:ByeL(@"What is wrong") detail:error ident:nil];
             why.detailColor = ByeBad();
@@ -108,7 +111,7 @@ static NSArray *ByeChecks(void) {
                                      there ? ByeGood() : ByeBad())];
         }
         BOOL telegram = [[config objectForKey:@"telegram"] isEqualToString:@"on"];
-        [rows addObject:ByeCheck(ByeL(@"Telegram gateway"), telegram ? ByeL(@"on") : ByeL(@"off"), ByeRGB(0xa9b8cd, 1.0f))];
+        [rows addObject:ByeCheck(ByeL(@"Telegram gateway"), telegram ? ByeL(@"on") : ByeL(@"off"), ByeColorTextSecondary())];
         NSString *proxyError = [daemon.status objectForKey:@"proxy.error"];
         BOOL proxyUp = [[daemon.status objectForKey:@"proxy"] intValue] == 1;
         if (proxyError.length) {
@@ -117,7 +120,7 @@ static NSArray *ByeChecks(void) {
             [rows addObject:ByeCheck(ByeL(@"Telegram proxy"),
                                      [NSString stringWithFormat:@"127.0.0.1:%@", [config objectForKey:@"proxy.port"]], ByeGood())];
         } else {
-            [rows addObject:ByeCheck(ByeL(@"Telegram proxy"), ByeL(@"off"), ByeRGB(0xa9b8cd, 1.0f))];
+            [rows addObject:ByeCheck(ByeL(@"Telegram proxy"), ByeL(@"off"), ByeColorTextSecondary())];
         }
     }
     return rows;
@@ -153,6 +156,8 @@ static NSString *ByeReportText(ByeReply *probe) {
     }
     [text appendString:@"\n[log]\n"];
     [text appendString:[ByeDaemon logTail:BYE_LOG_BYTES]];
+    [text appendString:@"\n[tls log]\n"];
+    [text appendString:[ByeDaemon tailOfFile:BYE_TLS_LOG maxBytes:3000]];
     [text appendString:@"\n[status hook]\n"];
     [text appendString:[ByeDaemon hookLogTail:2000]];
     [text appendString:@"\n[app log]\n"];
@@ -262,7 +267,7 @@ static void ByeRemoveOldReports(void) {
     NSString *raw = [daemon rawErrorText];
     if (raw.length) {
         ByeRow *row = [ByeRow rowWithKind:ByeRowStacked title:ByeL(@"Error as the daemon said it") detail:raw ident:nil];
-        row.detailColor = ByeRGB(0xf2a39c, 1.0f);
+        row.detailColor = ByeColorBad();
         row.monospace = YES;
         [head addObject:row];
     }
@@ -286,6 +291,11 @@ static void ByeRemoveOldReports(void) {
                                detail:tail.length ? tail : ByeL(@"The log is empty.") ident:nil];
     log.monospace = YES;
     [sections addObject:[ByeSection sectionWithTitle:ByeL(@"Daemon log") footer:nil rows:[NSArray arrayWithObject:log]]];
+    NSString *tlsTail = [ByeDaemon tailOfFile:BYE_TLS_LOG maxBytes:3000];
+    ByeRow *tls = [ByeRow rowWithKind:ByeRowStacked title:@BYE_TLS_LOG
+                               detail:tlsTail.length ? tlsTail : ByeL(@"The log is empty.") ident:nil];
+    tls.monospace = YES;
+    [sections addObject:[ByeSection sectionWithTitle:ByeL(@"TLS log") footer:nil rows:[NSArray arrayWithObject:tls]]];
     NSString *trace = ByeTraceTail(3000);
     ByeRow *app = [ByeRow rowWithKind:ByeRowStacked title:@"com.byebyedpi.app.log"
                                detail:trace.length ? trace : ByeL(@"The log is empty.") ident:nil];

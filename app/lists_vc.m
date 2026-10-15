@@ -157,6 +157,19 @@ static NSString *ByeDomainPreview(NSArray *domains) {
     _name.autocorrectionType = UITextAutocorrectionTypeNo;
     _name.returnKeyType = UIReturnKeyNext;
     _name.delegate = self;
+    if (ByeThemeModern()) {
+        /* the system field is white with black text, which the dark theme cannot use */
+        _name.borderStyle = UITextBorderStyleNone;
+        _name.backgroundColor = ByeColorSurface();
+        _name.textColor = ByeColorText();
+        _name.layer.cornerRadius = 12.0f;
+        UIView *pad = [[[UIView alloc] initWithFrame:CGRectMake(0.0f, 0.0f, 12.0f, 10.0f)] autorelease];
+        _name.leftView = pad;
+        _name.leftViewMode = UITextFieldViewModeAlways;
+        if ([_name respondsToSelector:@selector(setAttributedPlaceholder:)])
+            _name.attributedPlaceholder = [[[NSAttributedString alloc] initWithString:_name.placeholder
+                attributes:[NSDictionary dictionaryWithObject:ByeColorTextTertiary() forKey:@"NSColor"]] autorelease];
+    }
     [self.view addSubview:_name];
 
     _text = [[UITextView alloc] initWithFrame:CGRectZero];
@@ -165,8 +178,14 @@ static NSString *ByeDomainPreview(NSArray *domains) {
     _text.autocorrectionType = UITextAutocorrectionTypeNo;
     _text.keyboardType = UIKeyboardTypeURL;
     _text.layer.cornerRadius = 8.0f;
-    _text.layer.borderColor = [UIColor colorWithWhite:0.0f alpha:0.55f].CGColor;
-    _text.layer.borderWidth = 1.0f;
+    if (ByeThemeModern()) {
+        _text.backgroundColor = ByeColorSurface();
+        _text.textColor = ByeColorText();
+        _text.layer.cornerRadius = 12.0f;
+    } else {
+        _text.layer.borderColor = [UIColor colorWithWhite:0.0f alpha:0.55f].CGColor;
+        _text.layer.borderWidth = 1.0f;
+    }
     [self.view addSubview:_text];
 
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(keyboardChanged:)

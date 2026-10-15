@@ -50,7 +50,7 @@ static NSString *probe_resolution_error(ByeReply *report, NSString *name) {
     _state.lineBreakMode = NSLineBreakByWordWrapping;
     _state.adjustsFontSizeToFitWidth = YES;
     _state.textColor = ByeGroupedCaptionColor();
-    _state.shadowColor = [UIColor blackColor];
+    _state.shadowColor = ByeTextShadowColor();
     _state.shadowOffset = CGSizeMake(0.0f, -1.0f);
     [_header addSubview:_state];
     self.table.tableHeaderView = _header;
@@ -162,7 +162,7 @@ static NSString *probe_resolution_error(ByeReply *report, NSString *name) {
     if (_running) _state.text = [NSString stringWithFormat:ByeL(@"Checking: %@"), progress ? progress : @"0/0"];
     else if ([state isEqualToString:@"done"] && unresolved.count) {
         _state.text = [NSString stringWithFormat:ByeL(@"DNS failed: %@"), [unresolved componentsJoinedByString:@", "]];
-        _state.textColor = ByeRGB(0xf2a39c, 1.0f);
+        _state.textColor = ByeColorBad();
     }
     else if ([state isEqualToString:@"done"]) _state.text = ByeL(@"Done");
     else if ([state isEqualToString:@"stopped"]) _state.text = ByeL(@"Stopped");
@@ -197,13 +197,13 @@ static NSString *probe_resolution_error(ByeReply *report, NSString *name) {
                 color = ByeGroupedCaptionColor();
             } else if (c.ok == c.tried) {
                 summary = [NSString stringWithFormat:ByeL(@"works %u of %u, %u ms"), c.ok, c.tried, c.ms];
-                color = ByeRGB(0x7fe08a, 1.0f);
+                color = ByeColorGood();
             } else if (c.ok > 0) {
                 summary = [NSString stringWithFormat:ByeL(@"works %u of %u, %u ms"), c.ok, c.tried, c.ms];
-                color = ByeRGB(0xf2c879, 1.0f);
+                color = ByeColorWarn();
             } else {
                 summary = [NSString stringWithFormat:ByeL(@"fails %u of %u"), c.tried, c.tried];
-                color = ByeRGB(0xf2a39c, 1.0f);
+                color = ByeColorBad();
             }
             if (index < configured) summary = [summary stringByAppendingString:ByeL(@" (in your list)")];
             ByeRow *row = [ByeRow rowWithKind:ByeRowStacked title:summary
@@ -221,7 +221,7 @@ static NSString *probe_resolution_error(ByeReply *report, NSString *name) {
         } else if ([key isEqualToString:@"unresolved"]) {
             ByeRow *row = [ByeRow rowWithKind:ByeRowStacked title:value
                                        detail:probe_resolution_error(_report, value) ident:key];
-            row.detailColor = ByeRGB(0xf2a39c, 1.0f);
+            row.detailColor = ByeColorBad();
             [addresses addObject:row];
         }
     }

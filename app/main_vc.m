@@ -2,6 +2,7 @@
 
 #import <QuartzCore/QuartzCore.h>
 
+#import "bye_boykisser.h"
 #import "bye_chrome.h"
 #import "bye_daemon.h"
 #import "bye_l10n.h"
@@ -22,6 +23,7 @@ static const CGFloat ByeTitleInset = 14.0f;
     UILabel *_detail;
     ByeChip *_chip;
     ByeTileButton *_editor, *_settings, *_probe, *_lists;
+    ByeBoykisserField *_field;
     UIView *_titleLabel;
     UILabel *_titleText;
     BOOL _starting;          /* the busy state is a start, not a stop */
@@ -43,12 +45,19 @@ static const CGFloat ByeTitleInset = 14.0f;
     _titleText.text = @"ByeByeDPI";
     _titleText.textAlignment = NSTextAlignmentLeft;
     _titleText.font = ByeFont(20.0f, YES);
-    _titleText.textColor = [UIColor whiteColor];
-    _titleText.shadowColor = [UIColor colorWithWhite:0.0f alpha:0.5f];
+    _titleText.textColor = ByeColorBarText();
+    _titleText.shadowColor = ByeThemeModern() ? [UIColor clearColor] : [UIColor colorWithWhite:0.0f alpha:0.5f];
     _titleText.shadowOffset = CGSizeMake(0.0f, -1.0f);
     [_titleLabel addSubview:_titleText];
     _titleLabel.userInteractionEnabled = NO;
     self.navigationItem.titleView = _titleLabel;
+
+    if (ByeThemeBoykisser()) {
+        _field = [[ByeBoykisserField alloc] initWithFrame:self.view.bounds];
+        _field.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+        [self.view addSubview:_field];
+        [_field start];
+    }
 
     _power = [[ByePowerButton alloc] initWithFrame:CGRectMake(0.0f, 0.0f, 200.0f, 200.0f)];
     [_power addTarget:self action:@selector(powerPressed) forControlEvents:UIControlEventTouchUpInside];
@@ -59,8 +68,8 @@ static const CGFloat ByeTitleInset = 14.0f;
     _status.backgroundColor = [UIColor clearColor];
     _status.textAlignment = NSTextAlignmentCenter;
     _status.font = ByeFont(19.0f, YES);
-    _status.textColor = [UIColor whiteColor];
-    _status.shadowColor = [UIColor blackColor];
+    _status.textColor = ByeColorText();
+    _status.shadowColor = ByeTextShadowColor();
     _status.shadowOffset = CGSizeMake(0.0f, -1.0f);
     _status.adjustsFontSizeToFitWidth = YES;
     _status.lineBreakMode = NSLineBreakByClipping;
@@ -71,7 +80,7 @@ static const CGFloat ByeTitleInset = 14.0f;
     _detail.textAlignment = NSTextAlignmentCenter;
     _detail.font = ByeFont(12.0f, NO);
     _detail.textColor = ByeColorTextSecondary();
-    _detail.shadowColor = [UIColor blackColor];
+    _detail.shadowColor = ByeTextShadowColor();
     _detail.shadowOffset = CGSizeMake(0.0f, -1.0f);
     _detail.numberOfLines = 3;
     _detail.lineBreakMode = NSLineBreakByWordWrapping;
@@ -113,6 +122,8 @@ static const CGFloat ByeTitleInset = 14.0f;
     [_settings release];
     [_probe release];
     [_lists release];
+    [_field stop];
+    [_field release];
     [_titleLabel release];
     [_titleText release];
     [super dealloc];
@@ -120,8 +131,14 @@ static const CGFloat ByeTitleInset = 14.0f;
 
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
+    [_field setPaused:NO];
     [self refreshUI];
     [[ByeDaemon shared] reloadConfig];
+}
+
+- (void)viewWillDisappear:(BOOL)animated {
+    [super viewWillDisappear:animated];
+    [_field setPaused:YES];
 }
 
 - (void)languageChanged:(NSNotification *)note {
@@ -171,18 +188,18 @@ static NSString *ByeDuration(long seconds) {
         NSString *warning = [info objectForKey:@"warning"];
         if (warning.length) {
             detail = [detail stringByAppendingFormat:@"\n%@", warning];
-            detailColor = ByeRGB(0xf2c879, 1.0f);
+            detailColor = ByeColorWarn();
         }
     } else if (daemon.state == ByeDaemonUnreachable) {
         power = ByePowerError;
         status = ByeL(@"Daemon unavailable");
         detail = error.length ? error : ByeL(@"The daemon does not answer.");
-        detailColor = ByeRGB(0xf2a39c, 1.0f);
+        detailColor = ByeColorBad();
     } else if (error.length) {
         power = ByePowerError;
         status = ByeL(@"Could not connect");
         detail = error;
-        detailColor = ByeRGB(0xf2a39c, 1.0f);
+        detailColor = ByeColorBad();
     } else {
         detail = ByeL(@"Tap the button to start");
     }
@@ -316,6 +333,9 @@ static NSString *ByeDuration(long seconds) {
                                   tileWidth, tileHeight);
         [[order objectAtIndex:i] setFrame:frame];
     }
+    CGFloat common = 15.0f;
+    for (ByeTileButton *tile in order) common = MIN(common, [tile fitSizeForTileWidth:tileWidth]);
+    for (ByeTileButton *tile in order) [tile setTitleSize:ByeThemeModern() ? common : 0.0f];
 
     /* reserve the measured text height before sizing the button so long errors remain visible */
     CGFloat textWidth = MIN(upper.size.width - margin * 2.0f, pad ? 560.0f : 380.0f);

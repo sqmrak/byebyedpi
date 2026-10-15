@@ -39,6 +39,10 @@ static const NSUInteger ByeHistoryMax = 20;
     [[NSUserDefaults standardUserDefaults] synchronize];
 }
 
++ (void)forgetAll {
+    [self saveHistory:[NSArray array]];
+}
+
 + (void)remember:(NSString *)text {
     NSString *clean = [self clean:text];
     if (!clean.length) return;

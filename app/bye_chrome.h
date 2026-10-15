@@ -80,9 +80,14 @@ typedef enum {
 @interface ByeTileButton : UIControl {
     NSString *_title;
     NSString *_glyph;
+    CGFloat _titleSize;
 }
 - (id)initWithTitle:(NSString *)title glyph:(NSString *)glyph;
 - (void)setTitle:(NSString *)title;
+/* the flat tiles share one title size, so a long word does not make its own smaller than the rest:
+   fitSizeForTileWidth answers the largest size this title fits in, and setTitleSize applies the smallest of them */
+- (CGFloat)fitSizeForTileWidth:(CGFloat)width;
+- (void)setTitleSize:(CGFloat)size;
 @end
 
 @interface ByeChip : UIView {

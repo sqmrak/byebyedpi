@@ -77,6 +77,9 @@ static NSString *ByeBundledTitle(NSString *ident) {
     if ([ident isEqualToString:@"cloudflare"]) return @"Cloudflare";
     if ([ident isEqualToString:@"googlevideo"]) return @"Googlevideo";
     if ([ident isEqualToString:@"turkiye"]) return @"Türkiye";
+    if ([ident isEqualToString:@"youtube"]) return @"YouTube";
+    if ([ident isEqualToString:@"tiktok"]) return @"TikTok";
+    if ([ident isEqualToString:@"github"]) return @"GitHub";
     return [[[ident substringToIndex:1] uppercaseString] stringByAppendingString:[ident substringFromIndex:1]];
 }
 
@@ -126,6 +129,13 @@ static NSString *ByeBundledTitle(NSString *ident) {
 
 + (NSString *)keyFor:(ByeListsPurpose)purpose {
     return purpose == ByeListsForHosts ? ByeSelectedHostsKey : ByeSelectedProbeKey;
+}
+
++ (void)resetSelections {
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    [defaults removeObjectForKey:ByeSelectedHostsKey];
+    [defaults removeObjectForKey:ByeSelectedProbeKey];
+    [defaults synchronize];
 }
 
 + (BOOL)isSelected:(ByeList *)list for:(ByeListsPurpose)purpose {
