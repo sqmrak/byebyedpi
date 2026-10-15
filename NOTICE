@@ -16,8 +16,11 @@ daemon/tun/third_party/lwip/COPYING).
 the trust roots in the package are the pem bundle given as BYE_CA_BUNDLE_SRC
 when the deb is built.
 
-the domain lists under app/lists are the test lists of ByeByeDPI for android
-by romanvht (gpl v3), taken as they are.
+the domain lists under app/lists start from the test lists of ByeByeDPI for
+android by romanvht (gpl v3), and the youtube, discord, telegram, social,
+tiktok, cloudflare, spotify, twitch and github lists add names from
+domain-list-community by v2fly (mit, licenses/domain-list-community-MIT.txt),
+without its ads entries.
 
 the glyphs in art/icons/material are Material Symbols (apache 2.0,
 art/LICENSE-MaterialSymbols.txt). the other glyphs and the app icon are drawn
