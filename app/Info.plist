@@ -24,7 +24,7 @@
 	<key>CFBundleSignature</key>
 	<string>BYDP</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.0.0-stable</string>
+	<string>1.2.0-stable</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
 	<!-- the iphone and ipad lists are separate: ios 5 and 6 pick the listed file closest to the wanted size -->

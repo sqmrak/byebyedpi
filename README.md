@@ -24,15 +24,16 @@ settings and supported options: [config](docs/config.md).
 - domain lists, included and custom
 - strategy checks, even with the vpn on
 - telegram through websocket, or a local mtproxy
-- dns: `1.1.1.1` by default
+- dns: the network's, or an address of your own
 - quic blocking, so apps use tcp
 - auto reconnect
 - russian, english
+- classic theme, or light and dark
 - diagnostics in the app or `byebyectl`
 - vpn badge on ios 5-11 with substrate
 - byebyetlsfix: tls 1.3 for the apps you list on ios 5-11 with substrate, see [config](docs/config.md)
 
-older `dns = system` settings use `1.1.1.1` after the upgrade.
+an upgrade resets the settings of older builds to the defaults once.
 
 ## use
 
@@ -50,7 +51,11 @@ prefs: `/var/mobile/Library/Preferences/com.byebyedpi.byebyetlsfix.plist`. add `
 
 the log is `/var/log/byebyetlsfix.log`. `handshake ok: ... [TLSv1.3]` confirms the negotiated version; `gate: active` only means the app is enabled. settings: [config](docs/config.md#byebyetlsfix).
 
-checked on iphone 4s, ios 9.3.6: youtube in troubadour.
+checked on iphone 4s, ios 9.3.6: youtube in troubadour. on ios 6.1.3, a full h.264 video download through cfnetwork with tls 1.3.
+
+while the tunnel is on, `tlsfix.dylib` is saved as `tlsfix.dylib.byebyedpi-disabled` beside the original and byebyetlsfix handles tls. stopping the tunnel restores it. a failed start, daemon restart or package removal restores it too. existing backups are never overwritten. restart apps after switching, loaded tls hooks stay in their processes. `senkotlsfix` still disables byebyetlsfix.
+
+when replacing `tlsfix`, byebyetlsfix serves cfnetwork apps too. an explicit `enabled-<bundle id> = false` still disables it for that app.
 
 ## install
 
@@ -62,6 +67,8 @@ ssh root@<device-ip> dpkg -i /var/mobile/byebyedpi-*.deb
 ```
 
 remove: `dpkg -r com.byebyedpi.daemon`
+
+on ios 5-6, launchctl can list jobs while its unix socket is unavailable. if the job is absent, the installer starts the daemon directly. launchd starts it at the next boot.
 
 ## paths
 
@@ -84,7 +91,7 @@ needs `THEOS BYE_SDK_V7 BYE_SDK_V64 BYE_CRT_V7 BYE_OSSL_V7 BYE_OSSL_V64 BYE_CA_B
 `BYE_MBED` must hold mbedtls 3.6 libraries with tls 1.3, one set per slice. `BYE_DEB_OUT` changes the output directory. the build runs host tests, signs armv7 and arm64, then checks the archive, permissions, resources and checksums. to check an existing deb:
 
 ```bash
-./scripts/verify_deb.sh byebyedpi-v1.1.0-stable.deb
+./scripts/verify_deb.sh byebyedpi-v1.2.0-stable.deb
 ```
 
 ## license
