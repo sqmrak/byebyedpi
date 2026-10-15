@@ -169,11 +169,16 @@ cp "${SLICE}/byedpid" "${SLICE}/byebyectl" "${PAYLOAD}/usr/bin/"
 cp "${SLICE}/ByeByeDPI" "${APP}/ByeByeDPI"
 cp "${ROOT}/app/Info.plist" "${APP}/"
 cp "${ROOT}/app/icons/"ByeIcon*.png "${ROOT}/app/icons/"Default*.png "${ROOT}/app/icons/"ic-*.png \
-   "${ROOT}/app/icons/sqmrak.jpg" "${ROOT}/app/lists/"list-*.sites "${APP}/"
+   "${ROOT}/app/icons/boykisser.png" "${ROOT}/app/icons/sqmrak.jpg" "${ROOT}/app/lists/"list-*.sites "${APP}/"
 cp "${ROOT}/art/LICENSE-MaterialSymbols.txt" "${APP}/"
 mkdir -p "${APP}/PlugIns"
 cp -R "${APPX_SLICE}" "${APP}/PlugIns/"
 cp "${CA_SRC}" "${PAYLOAD}/usr/lib/byebyedpi/cacert.pem"
+# launchd gives the fat daemon no usable bootstrap port on ios 9.3.6
+# the thin armv7 daemon reaches configd, so postinst selects the device's slice
+mkdir -p "${PAYLOAD}/usr/lib/byebyedpi/armv7" "${PAYLOAD}/usr/lib/byebyedpi/arm64"
+cp "${SLICE}/armv7/byedpid" "${PAYLOAD}/usr/lib/byebyedpi/armv7/byedpid"
+cp "${SLICE}/arm64/byedpid" "${PAYLOAD}/usr/lib/byebyedpi/arm64/byedpid"
 cp "${SLICE}/status.dylib" "${PAYLOAD}/usr/lib/byebyedpi/status.dylib"
 cp "${ROOT}/status/bye_status.plist" "${PAYLOAD}/usr/lib/byebyedpi/status.plist"
 cp "${SLICE}/byebyetlsfix.dylib" "${PAYLOAD}/usr/lib/byebyedpi/byebyetlsfix.dylib"
@@ -187,7 +192,9 @@ cp "${ROOT}/licenses/domain-list-community-MIT.txt" "${PAYLOAD}/usr/share/doc/by
 cp "${ROOT}/daemon/tun/third_party/lwip/COPYING" "${PAYLOAD}/usr/share/doc/byebyedpi/lwip-COPYING"
 
 # normalized metadata prevents legacy dpkg from rejecting builder ownership
-chmod 755 "${PAYLOAD}/usr/bin/byedpid" "${PAYLOAD}/usr/bin/byebyectl"
+chmod 755 "${PAYLOAD}/usr/bin/byedpid" "${PAYLOAD}/usr/bin/byebyectl" \
+          "${PAYLOAD}/usr/lib/byebyedpi/armv7" "${PAYLOAD}/usr/lib/byebyedpi/arm64" \
+          "${PAYLOAD}/usr/lib/byebyedpi/armv7/byedpid" "${PAYLOAD}/usr/lib/byebyedpi/arm64/byedpid"
 chmod 755 "${PAYLOAD}/usr/lib/byebyedpi/status.dylib" "${PAYLOAD}/usr/lib/byebyedpi/byebyetlsfix.dylib" "${APP}" "${APP}/ByeByeDPI"
 chmod 755 "${PAYLOAD}/usr/lib/byebyedpi/byebyetlsfix" "${PAYLOAD}/usr/lib/byebyedpi/byebyetlsfix/roots"
 chmod 644 "${PAYLOAD}/usr/lib/byebyedpi/byebyetlsfix.plist" "${PAYLOAD}/usr/lib/byebyedpi/byebyetlsfix/"*.pem \

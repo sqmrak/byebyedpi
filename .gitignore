@@ -8,5 +8,6 @@
 /tests/test_*
 !/tests/test_*.c
 !/tests/test_*.inc
+!/tests/test_*.py
 /byebyedpi-v*.deb
 /out/

@@ -50,6 +50,8 @@ if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
   rm -f /var/mobile/Library/Preferences/com.byebyedpi.status.state \
         /var/mobile/Library/Preferences/com.byebyedpi.status.log
   remove_rootful_link /usr/bin/byedpid "${PAYLOAD_ROOT}/usr/bin/byedpid"
+  remove_rootful_link /usr/bin/byedpid "${PAYLOAD_ROOT}/usr/lib/byebyedpi/armv7/byedpid"
+  remove_rootful_link /usr/bin/byedpid "${PAYLOAD_ROOT}/usr/lib/byebyedpi/arm64/byedpid"
   remove_rootful_link /usr/bin/byebyectl "${PAYLOAD_ROOT}/usr/bin/byebyectl"
   remove_rootful_link /usr/lib/byebyedpi "${PAYLOAD_ROOT}/usr/lib/byebyedpi"
   # the rootful plist is a copy made by postinst, and only that copy is removed

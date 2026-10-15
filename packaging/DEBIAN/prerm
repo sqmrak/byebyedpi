@@ -47,6 +47,17 @@ sleep 1
 sleep 1
 "$KILLALL" -9 byedpid >/dev/null 2>&1 || true
 
+# restore the saved tlsfix even after a daemon crash
+saved_tls=0
+for dir in /Library/MobileSubstrate/DynamicLibraries /usr/lib/TweakInject; do
+  for name in tlsfix.dylib.byebyedpi-disabled senkotlsfix.dylib.byebyedpi-disabled; do
+    if [ -e "${dir}/${name}" ] || [ -L "${dir}/${name}" ]; then saved_tls=1; fi
+  done
+done
+if [ -x /usr/bin/byedpid ] && [ "$saved_tls" = 1 ]; then
+  /usr/bin/byedpid --restore-tls || exit 1
+fi
+
 if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
   rm -f /var/tmp/byedpid.sock /var/tmp/byedpid.token >/dev/null 2>&1 || true
 fi

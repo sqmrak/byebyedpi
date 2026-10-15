@@ -36,7 +36,10 @@ install_rootful_layout() {
   [ -z "$JBROOT" ] || return 0
   [ -x "${PAYLOAD_ROOT}/usr/bin/byedpid" ] || return 1
   [ -s "${PAYLOAD_ROOT}/usr/lib/byebyedpi/cacert.pem" ] || return 1
-  install_rootful_link "${PAYLOAD_ROOT}/usr/bin/byedpid" /usr/bin/byedpid || return 1
+  # a fat binary started by launchd has no bootstrap port on ios 9, see build_deb.sh
+  if [ "$(sysctl -n hw.cpu64bit_capable 2>/dev/null)" = 1 ]; then DAEMON_SLICE=arm64; else DAEMON_SLICE=armv7; fi
+  [ -x "${PAYLOAD_ROOT}/usr/lib/byebyedpi/${DAEMON_SLICE}/byedpid" ] || return 1
+  install_rootful_link "${PAYLOAD_ROOT}/usr/lib/byebyedpi/${DAEMON_SLICE}/byedpid" /usr/bin/byedpid || return 1
   install_rootful_link "${PAYLOAD_ROOT}/usr/bin/byebyectl" /usr/bin/byebyectl || return 1
   install_rootful_link "${PAYLOAD_ROOT}/usr/lib/byebyedpi" /usr/lib/byebyedpi || return 1
   source_path="${PAYLOAD_ROOT}/Library/LaunchDaemons/${LABEL}.plist"
@@ -100,6 +103,13 @@ remove_byebyetlsfix() {
 }
 
 install_byebyetlsfix() {
+  # safari runs as mobile and cannot create its log in /var/log
+  BYETLSFIX_LOG=/var/log/byebyetlsfix.log
+  [ ! -L "$BYETLSFIX_LOG" ] || return 1
+  [ ! -e "$BYETLSFIX_LOG" ] || [ -f "$BYETLSFIX_LOG" ] || return 1
+  : >> "$BYETLSFIX_LOG" || return 1
+  chown root:mobile "$BYETLSFIX_LOG" || return 1
+  chmod 660 "$BYETLSFIX_LOG" || return 1
   [ -f "${PAYLOAD_ROOT}/usr/lib/byebyedpi/byebyetlsfix.dylib" ] || return 1
   ln -sf "${PAYLOAD_ROOT}/usr/lib/byebyedpi/byebyetlsfix.dylib" "${HOOK_DIR}/byebyetlsfix.dylib" || return 1
   cp "${PAYLOAD_ROOT}/usr/lib/byebyedpi/byebyetlsfix.plist" "${HOOK_DIR}/byebyetlsfix.plist" || return 1
@@ -114,32 +124,41 @@ install_byebyetlsfix() {
   fi
 }
 
-# the launchctl of h3lix on ios 10 answers 0 to bootstrap and bootout without
-# doing either, so every step is judged by what launchd lists afterwards
+# ios 6 launchctl keeps the inherited bootstrap when either variable is set
+launchctl_cmd() {
+  (unset LAUNCHD_SOCKET LaunchKeepContext; "$LAUNCHCTL" "$@")
+}
+
+# h3lix on ios 10 reports success without loading, so check the job list
 launchd_loaded() {
-  case "$("$LAUNCHCTL" list 2>/dev/null)" in
-    *${LABEL}*) return 0 ;;
-  esac
+  jobs="$(launchctl_cmd list 2>/dev/null)" || return 2
+  [ -n "$jobs" ] || return 2
+  printf '%s\n' "$jobs" | (
+    while read -r pid status job extra; do
+      [ "$job" = "$LABEL" ] && [ -z "$extra" ] && exit 0
+    done
+    exit 1
+  )
+}
+
+# preserve its first error when the job fails to load
+launchd_attempt() {
+  out="$(launchctl_cmd "$@" 2>&1)"
+  status=$?
+  launchd_loaded && return 0
+  LAUNCHD_LAST_ERROR="$(printf '%s' "$out" | sed -n '1p')"
+  echo "postinst: diag launchctl $1: exit $status, $LAUNCHD_LAST_ERROR" >> "$LOG" 2>/dev/null
   return 1
 }
 
-launchd_start() {
-  if [ ! -x "$LAUNCHCTL" ]; then
-    echo "byebyedpi: no launchctl found, the daemon was not started" >&2
-    return 1
-  fi
-  "$LAUNCHCTL" bootstrap system "$PLIST" >/dev/null 2>&1
-  launchd_loaded || "$LAUNCHCTL" load -w "$PLIST" >/dev/null 2>&1
-  launchd_loaded || "$LAUNCHCTL" load "$PLIST" >/dev/null 2>&1
-  if ! launchd_loaded; then
-    echo "byebyedpi: launchd did not load ${PLIST}" >&2
-    echo "postinst: launchd did not load ${PLIST}" >> "$LOG" 2>/dev/null
-    return 1
-  fi
-  echo "postinst: launchd holds ${LABEL}" >> "$LOG" 2>/dev/null
-  "$LAUNCHCTL" enable "system/${LABEL}" >/dev/null 2>&1 || true
-  "$LAUNCHCTL" kickstart -k "system/${LABEL}" >/dev/null 2>&1 || \
-    "$LAUNCHCTL" start "$LABEL" >/dev/null 2>&1 || true
+# the session type a plist is judged against comes from the bootstrap launchctl runs in
+diagnose_launchd_load() {
+  echo "postinst: diag session: uid $(id -ur 2>/dev/null), euid $(id -u 2>/dev/null), manager $("$LAUNCHCTL" managername 2>&1 | sed -n '1p')" >> "$LOG" 2>/dev/null
+  echo "postinst: diag plist: $(ls -ln "$PLIST" 2>&1)" >> "$LOG" 2>/dev/null
+  echo "postinst: diag env: LAUNCHD_SOCKET=${LAUNCHD_SOCKET:-unset} LaunchKeepContext=${LaunchKeepContext:-unset}" >> "$LOG" 2>/dev/null
+}
+
+byedpid_answers() {
   # launchctl can list a job whose process exits before it opens the socket
   attempt=0
   while [ "$attempt" -lt 8 ]; do
@@ -152,8 +171,44 @@ launchd_start() {
     attempt=$((attempt + 1))
     [ "$attempt" -lt 8 ] && sleep 1
   done
-  echo "postinst: byedpid did not answer status after launchd load" >> "$LOG" 2>/dev/null
+  echo "postinst: byedpid did not answer status after start" >> "$LOG" 2>/dev/null
   return 1
+}
+
+# ios 6 can list jobs over mach while launch_msg has no unix socket
+start_without_launchd_socket() {
+  [ -z "$JBROOT" ] || return 1
+  case "$(firmware_major)" in 5|6) ;; *) return 1 ;; esac
+  [ "$LAUNCHD_LAST_ERROR" = 'launch_msg(): Socket is not connected' ] || return 1
+  launchd_loaded
+  [ $? = 1 ] || return 1
+  [ "$(launchctl_cmd managername 2>/dev/null)" = System ] || return 1
+  reply="$("${PAYLOAD_ROOT}/usr/bin/byebyectl" status 2>/dev/null)"
+  case "$reply" in OK*) return 0 ;; esac
+  echo "postinst: launchd socket unavailable, starting byedpid directly until reboot" >> "$LOG" 2>/dev/null
+  /usr/bin/byedpid </dev/null >> "$LOG" 2>&1 &
+  byedpid_answers
+}
+
+launchd_start() {
+  if [ ! -x "$LAUNCHCTL" ]; then
+    echo "byebyedpi: no launchctl found, the daemon was not started" >&2
+    return 1
+  fi
+  if ! { launchd_attempt bootstrap system "$PLIST" || \
+         launchd_attempt load -w "$PLIST" || \
+         launchd_attempt load "$PLIST"; }; then
+    start_without_launchd_socket && return 0
+    diagnose_launchd_load
+    echo "byebyedpi: launchd did not load ${PLIST} (${LAUNCHD_LAST_ERROR:-no launchctl output})" >&2
+    echo "postinst: launchd did not load ${PLIST}" >> "$LOG" 2>/dev/null
+    return 1
+  fi
+  echo "postinst: launchd holds ${LABEL}" >> "$LOG" 2>/dev/null
+  launchctl_cmd enable "system/${LABEL}" >/dev/null 2>&1 || true
+  launchctl_cmd kickstart -k "system/${LABEL}" >/dev/null 2>&1 || \
+    launchctl_cmd start "$LABEL" >/dev/null 2>&1 || true
+  byedpid_answers
 }
 
 install_rootful_layout || {
@@ -181,6 +236,9 @@ fi
 remove_byebyetlsfix
 if [ -z "$JBROOT" ] && [ -n "$HOOK_DIR" ] && [ "$(firmware_major)" -lt 12 ] 2>/dev/null; then
   install_byebyetlsfix || echo "byebyedpi: cannot install byebyetlsfix into ${HOOK_DIR}" >&2
+  if [ -e "${HOOK_DIR}/tlsfix.dylib" ] || [ -e "${HOOK_DIR}/senkotlsfix.dylib" ]; then
+    echo "postinst: external tlsfix or senkotlsfix installed, byebyetlsfix stays disabled" >> "$LOG" 2>/dev/null
+  fi
 fi
 
 mkdir -p /var/mobile/Library/Preferences/byebyedpi-hosts 2>/dev/null || true
